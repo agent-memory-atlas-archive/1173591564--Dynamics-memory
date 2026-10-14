@@ -1,0 +1,77 @@
+{
+  "synthetic": false,
+  "backend": "devin",
+  "model": "swe-2-max",
+  "modelCatalog": "../.tasklog/devin-model-catalog-01.json",
+  "db": "../.tasklog/devin-eval/history.db",
+  "outputDir": "../.tasklog/devin-pilot-01-B",
+  "modelContextWindow": 262000,
+  "maxSteps": 30,
+  "maxTotalTokens": 3000000,
+  "arms": [
+    "B"
+  ],
+  "budget": {
+    "maxContextTokens": null,
+    "warmupRounds": 5,
+    "queriesPerRound": 4,
+    "bytesPerQuery": 24000
+  },
+  "tasks": [
+    {
+      "id": "real-history-causal-probe-slice",
+      "repo": "../../../mvp",
+      "startCommit": "dd31d62b3b59062522c0f0f910e825e9d2425cef",
+      "prompt": "修复检索评测里的提问时序，这是历史任务的测量子任务，不包含另行替换模型。这里的‘提问注入’指 eval/l2l3 评测探针，不重写生产 memory-bridge。按‘喂入当前轮 → 等相关任务完成 → 发该时点探针 → 再喂下一轮’运行，不能整条流结束后补问混入未来事实。覆盖旧值更新、撤回和流结束边界；写入失败、尚未就绪、已有记忆但未检回分别记账。等待失败时不能继续喂未来轮次、不能把未就绪查询记成成功。保留接口兼容性，补回归测试；不调用远程 sidecar、embedding 或模型，不切换默认模型。",
+      "cut": {
+        "taskKey": "devin-event:18514:measurement-slice",
+        "startTs": 1791129554973,
+        "endTs": 1791162041543,
+        "commitSha": "ee04b209a90be9a43f0200e531a0c1deb4c0abf7"
+      },
+      "commands": [
+        {
+          "name": "local-audit-unit-tests",
+          "argv": [
+            "python",
+            "-m",
+            "pytest",
+            "tests/unit/test_l2l3_audit.py",
+            "-q"
+          ],
+          "timeoutMs": 120000
+        }
+      ],
+      "checks": [
+        {
+          "name": "causal-order-and-terminal-boundary",
+          "argv": [
+            "python",
+            "C:/Users/11735/Desktop/Projects/Hybrid Database/mvp-2/tasklog/.devin/checks/causal-probe.py",
+            "--mode",
+            "order"
+          ],
+          "timeoutMs": 30000
+        },
+        {
+          "name": "timeout-stops-future-feed",
+          "argv": [
+            "python",
+            "C:/Users/11735/Desktop/Projects/Hybrid Database/mvp-2/tasklog/.devin/checks/causal-probe.py",
+            "--mode",
+            "timeout"
+          ],
+          "timeoutMs": 30000
+        }
+      ],
+      "probes": [
+        {
+          "what": "future solution commit",
+          "needles": [
+            "ee04b209a90be9a43f0200e531a0c1deb4c0abf7"
+          ]
+        }
+      ]
+    }
+  ]
+}

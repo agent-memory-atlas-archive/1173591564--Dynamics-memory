@@ -1,0 +1,33 @@
+{
+  "name": "tasklog",
+  "version": "0.1.0",
+  "description": "Task-segmented event log as agent memory for coding agents. Zero-LLM write path.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "tasklog": "./src/cli.ts"
+  },
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "demo": "tsx scripts/make-demo.ts",
+    "test": "tsx test/run.ts",
+    "typecheck": "tsc --noEmit",
+    "pilot": "tsx scripts/pilot.ts",
+    "test:pilot": "tsx test/pilot-runner.ts",
+    "test:vector": "tsx test/vector.ts",
+    "test:devin": "tsx test/adapter-devin.ts && tsx test/model-devin.ts",
+    "test:all": "tsx test/run.ts && tsx test/reliability.ts && tsx test/migration.ts && tsx test/adapter-opencode.ts && tsx test/adapter-devin.ts && tsx test/model-devin.ts && tsx test/eval-split.ts && tsx test/pilot-runner.ts && tsx test/vector.ts && tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "better-sqlite3": "^11.10.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

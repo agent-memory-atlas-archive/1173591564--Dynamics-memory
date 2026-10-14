@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent-Memory 效用文献 · 可视化总结</title>
+<style>
+  :root{
+    --bg:#101318; --bg2:#161a21; --card:#1a1f27; --card2:#1f252f;
+    --ink:#e8ebf0; --sub:#98a1b0; --dim:#6b7484;
+    --line:#262c37; --line2:#303845;
+    --accent:#58a6d9; --accent-soft:rgba(88,166,217,.13);
+    --bad:#e07068; --bad-soft:rgba(224,112,104,.13);
+    --good:#63b583; --good-soft:rgba(99,181,131,.13);
+    --warn:#d9a441; --warn-soft:rgba(217,164,65,.12);
+    --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif}
+  ::selection{background:var(--accent-soft)}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+  /* ── nav ── */
+  nav{position:sticky;top:0;z-index:50;background:rgba(16,19,24,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:22px;height:52px;overflow-x:auto}
+  nav .brand{font-size:12.5px;font-weight:700;letter-spacing:.12em;color:var(--accent);white-space:nowrap;font-family:var(--mono)}
+  nav a{color:var(--sub);text-decoration:none;font-size:13px;white-space:nowrap;transition:color .15s}
+  nav a:hover{color:var(--ink)}
+
+  /* ── hero ── */
+  header{padding:72px 0 48px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--accent);margin-bottom:14px}
+  h1{font-size:clamp(28px,4.5vw,42px);font-weight:800;letter-spacing:-.01em;line-height:1.25}
+  h1 em{font-style:normal;color:var(--accent)}
+  .lede{margin-top:14px;color:var(--sub);font-size:15.5px;max-width:760px}
+  .q{margin-top:26px;padding:18px 22px;border:1px solid var(--line2);border-left:3px solid var(--accent);background:var(--card);border-radius:10px;font-size:14.5px;max-width:880px}
+  .q b{color:var(--accent)}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:30px}
+  .stat{background:var(--card);border:1px solid var(--line);padding:18px 20px;border-radius:10px;transition:border-color .15s}
+  .stat:hover{border-color:var(--line2)}
+  .stat .n{font-size:30px;font-weight:800;font-family:var(--mono);letter-spacing:-.02em}
+  .stat .l{color:var(--sub);font-size:12.5px;margin-top:3px}
+  .stat .n a{color:inherit;text-decoration:none}
+  .depthbar{display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:8px;gap:2px}
+  .depthbar i{display:block}
+  .depthbar .x3{background:var(--accent)} .depthbar .x2{background:var(--dim)} .depthbar .x1{background:#8a6d5a}
+
+  /* ── sections ── */
+  section{padding:64px 0 8px}
+  .sec-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;color:var(--accent);margin-bottom:8px}
+  h2{font-size:23px;font-weight:700;letter-spacing:-.01em}
+  .h2sub{color:var(--sub);font-size:13.5px;margin:6px 0 22px;max-width:820px}
+
+  /* ── five layers ── */
+  .layers{position:relative;padding-left:34px}
+  .layers::before{content:"";position:absolute;left:11px;top:24px;bottom:24px;width:2px;background:var(--line2)}
+  .layer{position:relative;display:grid;grid-template-columns:170px 1fr 270px;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px;transition:border-color .15s}
+  .layer:hover{border-color:var(--line2)}
+  .layer::before{content:"";position:absolute;left:-28px;top:26px;width:10px;height:10px;border-radius:50%;background:var(--bg);border:2px solid var(--accent)}
+  .layer .lh{padding:18px 18px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;background:var(--card2)}
+  .layer .lh .id{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--accent)}
+  .layer .lh .nm{font-size:13px;font-weight:600;margin-top:2px}
+  .layer .mid{padding:16px 20px;font-size:13.5px;color:#c6ccd6}
+  .layer .mid b{color:var(--ink)}
+  .layer .mid .srcs{margin-top:8px;font-size:11.5px;color:var(--dim);font-family:var(--mono)}
+  .layer .fix{padding:16px 18px;border-left:1px solid var(--line);font-size:12.5px;background:rgba(0,0,0,.12)}
+  .badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:11px;font-weight:700;letter-spacing:.03em}
+  .b-strong{background:var(--good-soft);color:var(--good)}
+  .b-mid{background:var(--warn-soft);color:var(--warn)}
+  .b-weak{background:rgba(107,116,132,.15);color:var(--sub)}
+  .ours{margin-top:8px;font-size:12.5px;color:var(--sub)}
+  .ours b{color:var(--accent)}
+
+  /* ── charts ── */
+  .chart{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px 26px;margin-bottom:16px}
+  .chart h3{font-size:15.5px;font-weight:700;margin-bottom:5px}
+  .chart .cap{color:var(--sub);font-size:12.5px;margin-bottom:18px}
+  .row{display:grid;grid-template-columns:200px 1fr 74px;align-items:center;gap:12px;margin:9px 0}
+  .row .lbl{font-size:12.5px;text-align:right;color:var(--sub);line-height:1.35}
+  .track{height:18px;background:var(--bg2);border-radius:4px;position:relative;overflow:hidden}
+  .bar{height:100%;border-radius:4px;min-width:3px;position:relative;transition:filter .15s}
+  .chart:hover .bar{filter:brightness(1.05)}
+  .bar.b{background:var(--bad)} .bar.g{background:var(--good)} .bar.n{background:#5d6b7d} .bar.a{background:var(--accent)}
+  .row .v{font-family:var(--mono);font-size:12.5px;font-weight:700}
+  .row .v.neg{color:var(--bad)} .row .v.pos{color:var(--good)}
+  .legend{display:flex;gap:18px;font-size:12px;color:var(--sub);margin-top:14px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:6px;vertical-align:-1px}
+  .src{font-size:11.5px;color:var(--dim);margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  .src code{font-family:var(--mono);font-size:11px;color:var(--sub)}
+
+  /* ── gaps ── */
+  .gaps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .gap{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--bad);border-radius:10px;padding:18px 20px}
+  .gap .gi{font-family:var(--mono);font-size:12px;color:var(--bad);font-weight:700;letter-spacing:.1em}
+  .gap h4{font-size:15px;margin:6px 0 8px}
+  .gap p{font-size:12.5px;color:var(--sub)}
+  .gap p b{color:var(--ink)}
+
+  /* ── protocol ── */
+  .proto{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .pcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;font-size:12.8px;color:#c6ccd6;transition:border-color .15s}
+  .pcard:hover{border-color:var(--accent)}
+  .pcard .pi{font-family:var(--mono);font-size:20px;font-weight:800;color:var(--accent);opacity:.85;display:block;margin-bottom:6px}
+  .pcard b{color:var(--ink)}
+
+  /* ── table ── */
+  .filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .filters select,.filters input{font:inherit;font-size:13px;padding:8px 12px;border:1px solid var(--line2);border-radius:8px;background:var(--card);color:var(--ink);outline:none}
+  .filters select:focus,.filters input:focus{border-color:var(--accent)}
+  .filters input{flex:1;min-width:200px}
+  .filters input::placeholder{color:var(--dim)}
+  #cnt{align-self:center;color:var(--dim);font-size:12.5px;font-family:var(--mono)}
+  .tblwrap{border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:660px;background:var(--card)}
+  table{width:100%;border-collapse:collapse;font-size:12.8px}
+  thead th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:700;background:var(--card2);padding:11px 14px;text-align:left;position:sticky;top:0;border-bottom:1px solid var(--line2)}
+  tbody td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top;color:#c6ccd6}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:var(--bg2)}
+  td.id{font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  td.id a{color:var(--accent);text-decoration:none}
+  td.id a:hover{text-decoration:underline}
+  td.f{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap}
+  .dep{font-size:10.5px;padding:2px 8px;border-radius:9px;font-weight:700;white-space:nowrap;letter-spacing:.03em}
+  .d3{background:var(--accent-soft);color:var(--accent)}
+  .d2{background:rgba(107,116,132,.15);color:var(--sub)}
+  .d1{background:rgba(138,109,90,.16);color:#b08d74}
+
+  .honest{background:var(--warn-soft);border:1px solid rgba(217,164,65,.25);border-radius:12px;padding:20px 24px;font-size:13px;margin:56px 0 0;color:#d8cdb8}
+  .honest b{color:var(--warn)}
+  .honest li{margin:6px 0 6px 20px}
+  footer{margin:36px 0 48px;color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:18px;font-family:var(--mono)}
+
+  @media(max-width:900px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .layer{grid-template-columns:1fr}
+    .layer .lh{border-right:none;border-bottom:1px solid var(--line);flex-direction:row;align-items:baseline;gap:10px}
+    .layer .fix{border-left:none;border-top:1px dashed var(--line)}
+    .proto,.gaps{grid-template-columns:1fr}
+    .row{grid-template-columns:140px 1fr 60px}
+    header{padding:48px 0 36px}
+  }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="brand">MEMORY·LIT</span>
+  <a href="#layers">五层缺陷</a><a href="#numbers">关键数字</a>
+  <a href="#subjects">四类主体</a><a href="#ctxmem">context×memory</a><a href="#gaps">缺口</a><a href="#protocol">验收协议</a><a href="#papers">81 篇目录</a>
+</div></nav>
+
+<header><div class="wrap">
+  <div class="eyebrow">LITERATURE REVIEW · 5 ROUNDS · 2026-10</div>
+  <h1>Agent-memory 是<em>帮手</em>还是<em>污染源</em>？</h1>
+  <p class="lede">Dynamics-memory 项目的文献调研可视化汇总。答案：这正是 2025-2026 年主战场——"有记忆更差"已被多篇独立工作证实，失败被定位到五层独立机制；记忆服务的主体拆成四类；第五轮把 context 工程 × memory 工程的协作界面读了出来：窗口是 L1 cache，记忆是 L4——中间隔着驻留/驱逐/写回三张契约。</p>
+  <div class="q"><b>核心问题：</b>引入 agent-memory 后，LLM 在长任务上的回答/行动是变准了，还是被污染变差了？</div>
+  <div class="stats">
+    <div class="stat"><div class="n">81</div><div class="l">论文 PDF · 8 个主题目录</div></div>
+    <div class="stat"><div class="n">11·43·27</div><div class="l">深读 / 主体 / 摘要级</div>
+      <div class="depthbar"><i class="x3" style="width:13.6%"></i><i class="x2" style="width:53.1%"></i><i class="x1" style="width:33.3%"></i></div></div>
+    <div class="stat"><div class="n">5</div><div class="l">缺陷层（L0′ 写入 → L4 归因）</div></div>
+    <div class="stat"><div class="n">1<span style="font-size:18px;color:var(--sub)">/4</span></div><div class="l">记忆主体被覆盖（世界事实）</div></div>
+  </div>
+</div></header>
+
+<!-- ═══════════ 五层模型 ═══════════ -->
+<section id="layers"><div class="wrap">
+  <div class="sec-eyebrow">01 — FAILURE STACK</div>
+  <h2>五层缺陷模型</h2>
+  <p class="h2sub">每层失效机制独立，只修一层照样漏。"证据强度"指该层修法在文献中的实证强度；"我们"指 Dynamics-memory 当前设计的位置。</p>
+  <div class="layers">
+
+    <div class="layer">
+      <div class="lh"><span class="id">L0′</span><span class="nm">写入忠实度</span></div>
+      <div class="mid">固化/压缩的每一步都是有损重写：从 ground-truth 解答固化，GPT-5.4 在本来 100% 做对的题上答错 <b>54%</b>。记忆还使环境非平稳，轨迹级功劳无法归因。
+        <div class="srcs">2605.12978 · 2607.01523 · 2605.21768</div></div>
+      <div class="fix"><span class="badge b-strong">证据强</span><div class="ours">修法：保留原文 + 门控固化 + 同态重 rollout<br><b>我们：</b>L0 不可变 + consolidation 默认关 + 因果屏障 —— 落在安全角</div></div>
+    </div>
+
+    <div class="layer">
+      <div class="lh"><span class="id">L1</span><span class="nm">生命周期</span></div>
+      <div class="mid">旧值永不退出 → 受控反转下 append-only 记忆 0.210 <b>低于</b>无记忆 0.309；撤销语义把它修到 0.950。Supersede 证明该 gap 不随模型规模、记忆容量消失。
+        <div class="srcs">2608.07429 · 2606.27472</div></div>
+      <div class="fix"><span class="badge b-strong">证据强</span><div class="ours">修法：显式生命周期 + 撤销进 archive<br><b>我们：</b>superseded/withdrawn/retired + 来源授权 —— 比文献更保守</div></div>
+    </div>
+
+    <div class="layer">
+      <div class="lh"><span class="id">L2</span><span class="nm">裁决权威</span></div>
+      <div class="mid">新证据 top-20 可见率 77.5%，旧证据仍占 top-1 的 88.2% —— <b>可见 ≠ 被采信</b>。必须让旧值进不了候选，而非仅降权。
+        <div class="srcs">2605.06527 · 2607.12893</div></div>
+      <div class="fix"><span class="badge b-mid">证据中</span><div class="ours">修法：写侧裁决 或 硬退役<br><b>我们：</b>Selector 动作集 + retired 退出检索 —— 同构且更硬</div></div>
+    </div>
+
+    <div class="layer">
+      <div class="lh"><span class="id">L3</span><span class="nm">读者层</span></div>
+      <div class="mid">新旧值都在 context 仍答旧值；旧值被<b>复述一次</b>旧值错误率 75-94%；写时修复隔几轮从 92.8% 崩到 8.7%；显式"忽略旧值"几乎无效。
+        <div class="srcs">2609.38866 · 2506.08184 · 2605.30233</div></div>
+      <div class="fix"><span class="badge b-mid">证据中</span><div class="ours">修法：只能缓解——不喂旧值 + 标状态 + 查询时重裁决<br><b>我们：</b>硬退役 + dispute 警告对路，缺 PR 预设抵抗探针</div></div>
+    </div>
+
+    <div class="layer">
+      <div class="lh"><span class="id">L4</span><span class="nm">反馈归因</span></div>
+      <div class="mid">有偏输入经记忆固化传播；用错的记忆被错误反馈强化 = 自我污染；安全层攻击与模型失调<b>行为上不可区分</b>。
+        <div class="srcs">2606.23195 · 2605.22842</div></div>
+      <div class="fix"><span class="badge b-weak">证据弱</span><div class="ours">修法：输入侧裁决 + 同态对照 + 记忆层反事实归因<br><b>我们：</b>defer_credit 雏形——谁有资格给 credit 未裁决</div></div>
+    </div>
+
+  </div>
+</div></section>
+
+<!-- ═══════════ 关键数字 ═══════════ -->
+<section id="numbers"><div class="wrap">
+  <div class="sec-eyebrow">02 — KEY NUMBERS</div>
+  <h2>关键数字</h2>
+  <p class="h2sub">成对对比：记忆帮了还是害了。所有数字均为论文自报，未经独立复现。</p>
+
+  <div class="chart">
+    <h3>"有记忆"可以比"无记忆"更差 —— 且可修</h3>
+    <div class="cap">TEPA 受控反转相位任务成功率（50 seed）· Supersede 知识更新子集 · 固化退化（GT 输入）· MemDelta 单变量对照</div>
+    <div class="row"><div class="lbl">TEPA · 无记忆</div><div class="track"><div class="bar n" style="width:32.5%"></div></div><div class="v">0.309</div></div>
+    <div class="row"><div class="lbl">TEPA · append-only</div><div class="track"><div class="bar b" style="width:22.1%"></div></div><div class="v neg">0.210</div></div>
+    <div class="row"><div class="lbl">TEPA · +撤销语义</div><div class="track"><div class="bar g" style="width:100%"></div></div><div class="v pos">0.950</div></div>
+    <div class="row"><div class="lbl">Supersede · 全上下文</div><div class="track"><div class="bar n" style="width:96.8%"></div></div><div class="v">92%</div></div>
+    <div class="row"><div class="lbl">Supersede · 有界记忆</div><div class="track"><div class="bar b" style="width:81.1%"></div></div><div class="v neg">77%</div></div>
+    <div class="row"><div class="lbl">固化前 · GT 解答</div><div class="track"><div class="bar n" style="width:100%"></div></div><div class="v">100%</div></div>
+    <div class="row"><div class="lbl">固化后 · 答错率</div><div class="track"><div class="bar b" style="width:56.8%"></div></div><div class="v neg">54%错</div></div>
+    <div class="row"><div class="lbl">MemDelta · 裸 RAG</div><div class="track"><div class="bar n" style="width:49.5%"></div></div><div class="v">47%</div></div>
+    <div class="row"><div class="lbl">MemDelta · 自产记忆</div><div class="track"><div class="bar b" style="width:44.2%"></div></div><div class="v neg">42%</div></div>
+    <div class="legend"><span><i style="background:#5d6b7d"></i>无记忆 / 全上下文</span><span><i style="background:var(--bad)"></i>有缺陷的记忆设计</span><span><i style="background:var(--good)"></i>加撤销语义后</span></div>
+    <div class="src">来源 <code>2608.07429</code> <code>2606.27472</code> <code>2605.12978</code> <code>2606.29914</code></div>
+  </div>
+
+  <div class="chart">
+    <h3>更新 / 遗忘是全行业未解短板</h3>
+    <div class="cap">MemoryAgentBench 事实固化多跳（所有方法 ≤28%）· o4-mini 随规模塌陷 · MemOps 分操作（长上下文）· Temp-LoRA 参数化记忆垫底</div>
+    <div class="row"><div class="lbl">FactCon-MH 全员上限</div><div class="track"><div class="bar b" style="width:28%"></div></div><div class="v neg">≤28%</div></div>
+    <div class="row"><div class="lbl">o4-mini · FactCon-MH 6K</div><div class="track"><div class="bar n" style="width:80%"></div></div><div class="v">80%</div></div>
+    <div class="row"><div class="lbl">o4-mini · FactCon-MH 32K</div><div class="track"><div class="bar b" style="width:14%"></div></div><div class="v neg">14%</div></div>
+    <div class="row"><div class="lbl">MemOps · Remember</div><div class="track"><div class="bar n" style="width:84%"></div></div><div class="v">~0.84</div></div>
+    <div class="row"><div class="lbl">MemOps · TrajectoryOps</div><div class="track"><div class="bar b" style="width:73%"></div></div><div class="v neg">0.65–0.83</div></div>
+    <div class="row"><div class="lbl">Temp-LoRA · 参数化</div><div class="track"><div class="bar b" style="width:16.2%"></div></div><div class="v neg">0.162</div></div>
+    <div class="src">来源 <code>2507.05257</code> <code>2607.12893</code> · BM25 在选择性遗忘上胜过 Mem0(18%)/Zep(7%)/MIRIX(14%)</div>
+  </div>
+
+  <div class="chart">
+    <h3>构建与检索阶段吃掉 30–40 个百分点</h3>
+    <div class="cap">DyadMem：金记忆在手 vs 全管线 · 检索粒度与记忆单元长度（MemOps）</div>
+    <div class="row"><div class="lbl">DyadMem · 金记忆 QA</div><div class="track"><div class="bar g" style="width:96.3%"></div></div><div class="v pos">78–96%</div></div>
+    <div class="row"><div class="lbl">DyadMem · 全管线 闭源</div><div class="track"><div class="bar n" style="width:57.4%"></div></div><div class="v">57.4%</div></div>
+    <div class="row"><div class="lbl">DyadMem · 全管线 开源</div><div class="track"><div class="bar b" style="width:47.7%"></div></div><div class="v neg">47.7%</div></div>
+    <div class="row"><div class="lbl">Session 级 RAG</div><div class="track"><div class="bar n" style="width:84.5%"></div></div><div class="v">0.845</div></div>
+    <div class="row"><div class="lbl">Turn 级 RAG</div><div class="track"><div class="bar b" style="width:61.8%"></div></div><div class="v neg">0.618</div></div>
+    <div class="row"><div class="lbl">MemOS · 长记忆单元</div><div class="track"><div class="bar n" style="width:78.5%"></div></div><div class="v">0.785</div></div>
+    <div class="row"><div class="lbl">Mem0 · 短抽取</div><div class="track"><div class="bar b" style="width:54.3%"></div></div><div class="v neg">0.543</div></div>
+    <div class="src">来源 <code>2610.03020</code> <code>2607.12893</code> · HaluMem 同步结论：幻觉在抽取/更新阶段产生并传播到 QA</div>
+  </div>
+
+  <div class="chart">
+    <h3>读者层机制：复述即污染</h3>
+    <div class="cap">Stale Binding：快照问答 vs 穿越操作日志重建 · 复述一次旧值的后果 · 写时修复的随轮衰减</div>
+    <div class="row"><div class="lbl">GPT-5.6 · 快照问答</div><div class="track"><div class="bar g" style="width:100%"></div></div><div class="v pos">40/40</div></div>
+    <div class="row"><div class="lbl">GPT-5.6 · 日志重建</div><div class="track"><div class="bar b" style="width:22.5%"></div></div><div class="v neg">9/40</div></div>
+    <div class="row"><div class="lbl">旧值被复述 → 旧值错误</div><div class="track"><div class="bar b" style="width:94%"></div></div><div class="v neg">75–94%</div></div>
+    <div class="row"><div class="lbl">写时修复 · 紧邻查询</div><div class="track"><div class="bar n" style="width:92.8%"></div></div><div class="v">92.8%</div></div>
+    <div class="row"><div class="lbl">写时修复 · 隔几轮</div><div class="track"><div class="bar b" style="width:8.7%"></div></div><div class="v neg">8.7%</div></div>
+    <div class="src">来源 <code>2609.38866</code> · MemOps 独立互证：新旧值紧邻时 DeepSeek 反而更差（复述证据链泄漏被抑制值）</div>
+  </div>
+
+  <div class="chart">
+    <h3>防御的代价 与 组合攻击</h3>
+    <div class="cap">写时防御在良性流量下无可分辨损失；读时 reranker 误伤；salami 切片攻击绕过逐条过滤</div>
+    <div class="row"><div class="lbl">reranker 误隔离率</div><div class="track"><div class="bar b" style="width:33.6%"></div></div><div class="v neg">33.6%</div></div>
+    <div class="row"><div class="lbl">reranker 准确率损失</div><div class="track"><div class="bar b" style="width:4.4%"></div></div><div class="v neg">−4.4pt</div></div>
+    <div class="row"><div class="lbl">写时防御 · 效用损失</div><div class="track"><div class="bar g" style="width:1%"></div></div><div class="v pos">≈0</div></div>
+    <div class="row"><div class="lbl">Salami · 记忆保存率</div><div class="track"><div class="bar a" style="width:81.3%"></div></div><div class="v">81.3%</div></div>
+    <div class="row"><div class="lbl">Salami · 攻击成功率</div><div class="track"><div class="bar b" style="width:75%"></div></div><div class="v neg">75.0%</div></div>
+    <div class="row"><div class="lbl">MPBench · 平均 ASR</div><div class="track"><div class="bar b" style="width:50%"></div></div><div class="v neg">~50%</div></div>
+    <div class="src">来源 <code>2609.22818</code> <code>2608.01637</code> <code>2606.04329</code> · Misattribution Gap：64 次失败全被归咎于模型</div>
+  </div>
+</div></section>
+
+<!-- ═══════════ 四类主体 ═══════════ -->
+<section id="subjects"><div class="wrap">
+  <div class="sec-eyebrow">03 — FOUR SUBJECTS</div>
+  <h2>记忆服务的主体，不是一个，是四个</h2>
+  <p class="h2sub">第四轮按"记忆内容是谁"重排文献：四类主体的失效物理、生命周期语义、攻击面各不相同。我们当前架构主要覆盖第一类。</p>
+  <div class="gaps" style="grid-template-columns:repeat(4,1fr)">
+    <div class="gap" style="border-top-color:var(--accent)"><span class="gi" style="color:var(--accent)">S·01 世界事实</span><h4>外部状态与声明值</h4><p>TEPA / STALE / Supersede。失效=过时、被撤回。生命周期可"作废"（supersede/withdraw）。<b>我们覆盖的主体。</b></p></div>
+    <div class="gap" style="border-top-color:var(--warn)"><span class="gi" style="color:var(--warn)">S·02 用户画像</span><h4>属性 / 习惯 / 偏好</h4><p>DynamicMem / PersonaMem-v2。偏好<b>从不明说</b>，须从分散行为推断；三种时间尺度漂移；前沿模型隐式识别仅 37–48%。来源授权句法对此覆盖为零。</p></div>
+    <div class="gap" style="border-top-color:var(--warn)"><span class="gi" style="color:var(--warn)">S·03 关系状态</span><h4>谁说、对谁说、共同约定</h4><p>GroupMemBench。同一句话不同人说→不同更新；最强系统仅 46%，根因是<b>摄入管线抹掉了说话人身份</b>。</p></div>
+    <div class="gap" style="border-top-color:var(--bad)"><span class="gi">S·04 自我履历</span><h4>经验→程序、教训</h4><p>MemoryGraft / Zombie / TAME。不能"撤销"只能"学到教训"；同时暴露在假经验、对抗性存续、良性漂移（misevolution）三条路上——须走最严准入。</p></div>
+  </div>
+  <p class="note" style="margin-top:14px">读者侧机制底层：LLM 不做全局状态更新，只在检索时对 binding ID 做局部重映射（rebinding circuit，~3-10% 组件）；CL-Bench 显示"从 context 学习"前沿模型仅 17-24%。含义：<b>serve 层要给出已算好的当前态，而非让模型自己重建证据</b>。</p>
+</div></section>
+
+<!-- ═══════════ CONTEXT × MEMORY ═══════════ -->
+<section id="ctxmem"><div class="wrap">
+  <div class="sec-eyebrow">04 — CONTEXT × MEMORY</div>
+  <h2>context 工程 × memory 工程：隔着三张契约</h2>
+  <p class="h2sub">第五轮专读界面文献。收敛结论：context window 是 L1 cache 不是 memory（857 生产会话 21.8% 结构性浪费实测）；跨会话持久记忆是 L4、"剩余前沿"。两工程的分工与契约点如下。</p>
+  <div class="gaps" style="grid-template-columns:repeat(3,1fr)">
+    <div class="gap" style="border-top-color:var(--accent)"><span class="gi" style="color:var(--accent)">C·01 驻留/驱逐</span><h4>谁进窗口、何时让位</h4><p>Pichay 按需分页：evict 陈旧内容、模型再请求=page fault、fault 史驱动 pin（离线 fault 率 0.0254%、context −93%）。ACM：agent 自主决定压缩时机，<b>丢弃内容无损 offload 到外部记忆</b>——从 context 消失 ≠ 从系统消失。</p></div>
+    <div class="gap" style="border-top-color:var(--accent)"><span class="gi" style="color:var(--accent)">C·02 写回校验</span><h4>context→memory 的逆向流</h4><p>Root Theorem 推论五：压缩器在被压缩的信道内运行，<b>验证门必须外部化</b>——compression paradox：触发太晚则压缩本身在衰减区运行。ClawVM：harness 是天然执法点，staged validated writeback 消灭 bootstrap-loss/flush-miss/destructive-writeback 三类现场故障。</p></div>
+    <div class="gap" style="border-top-color:var(--accent)"><span class="gi" style="color:var(--accent)">C·03 可用性</span><h4>relevant ≠ admissible</h4><p>2610.07309：同一记录对"现在是什么"不可用、对"怎么变的"必需——<b>可接受性是查询条件化的</b>。可信 namespace 预筛 top-20 召回 0.432→0.533、评测工作量 −98.3%；4 读者中 1 个在相关但不可接受曝光后字面泄漏（+0.156）。新指标：inadmissible exposure 率。</p></div>
+  </div>
+  <p class="note" style="margin-top:14px">ACE（2510.04618）是替代路线：把"履历/程序性记忆"当可演化 playbook 纯 context 实现，结构化增量 item 防 context collapse（+10.6% agent，无标签执行反馈）——和我们"版本化条目优于块重写"独立同解，也是 S·04 主体的竞争者。</p>
+</div></section>
+
+<!-- ═══════════ 缺口 ═══════════ -->
+<section id="gaps"><div class="wrap">
+  <div class="sec-eyebrow">05 — OUR GAPS</div>
+  <h2>文献确认而我们未覆盖的缺口</h2>
+  <p class="h2sub">按对"记忆是否提升最终答案"的影响排序。三个都是开放问题，不是追赶项。</p>
+  <div class="gaps">
+    <div class="gap"><span class="gi">GAP·01</span><h4>隐式失效</h4><p>"我摔断腿了"应让"骑车通勤"失效，但没有同槽改值，授权句法永远触发不了（PENDING-02）。STALE 证实这是所有路线的共同盲区，Type II 级联普降 <b>20–40pp</b>。</p></div>
+    <div class="gap"><span class="gi">GAP·02</span><h4>排空假设</h4><p>25/25 全是"后台排空后查询"的分数。维护吞吐跟不上时，未消化记忆会被检索——Anatomy 的 <b>agency tax</b>。需要"未消化标注"或排空感知的服务降级。</p></div>
+    <div class="gap"><span class="gi">GAP·03</span><h4>PR 预设抵抗</h4><p>用户提问自带旧态前提时，最好模型抵抗力仅 <b>30%</b>。serve 层应显式标注"该前提已失效"；我们还没有这类探针。LongMemEval-V2 的 premise awareness 题型可借。</p></div>
+  </div>
+</div></section>
+
+<!-- ═══════════ 验收协议 ═══════════ -->
+<section id="protocol"><div class="wrap">
+  <div class="sec-eyebrow">06 — ACCEPTANCE PROTOCOL</div>
+  <h2>从文献继承的可证伪验收协议</h2>
+  <p class="h2sub">替代"25/25"式单分。每一条都能独立判真伪。</p>
+  <div class="proto">
+    <div class="pcard"><span class="pi">01</span><b>TEPA 相位协议</b>：stable / light / reversal / return 分相对 no-memory 报差；reversal 相 &gt; no-memory 才算撤销机制兜底。</div>
+    <div class="pcard"><span class="pi">02</span><b>MemDelta 单变量</b>：每次只变一组件 + 配对检验 + 随机基线 + 写路径成本；只换 embedding 即可翻转结论。</div>
+    <div class="pcard"><span class="pi">03</span><b>Stored Evidence 分解</b>：预算耗尽 vs 预算内答错分开；rollout 不截断，预算事后判定。</div>
+    <div class="pcard"><span class="pi">04</span><b>EvolveScaler 分解</b>：选记录错 / 聚合错 / 排序错分开——聚合占 46–56% 是最大类。</div>
+    <div class="pcard"><span class="pi">05</span><b>pass@k vs avg@k</b>：分离偶尔对与稳定对；单链结果只作探索性证据。</div>
+    <div class="pcard"><span class="pi">06</span><b>MemOps 操作级</b>：Leakage Rate + Stale Value Rate + Provenance support 与答案准确率并列。</div>
+    <div class="pcard"><span class="pi">07</span><b>良性代价</b>：无冲突流量上单测服务端<b>误拒率</b>；同配置至少三次复跑才下结论。</div>
+    <div class="pcard"><span class="pi">08</span><b>R2 同态对照</b>：credit 归因以"同一记忆态不同操作"为比较单位，不跨分叉轨迹比。</div>
+    <div class="pcard"><span class="pi">09</span><b>归因顺序</b>：答案层失败先做记忆层反事实（去候选重答），再归因读者模型。</div>
+  </div>
+</div></section>
+
+<!-- ═══════════ 目录 ═══════════ -->
+<section id="papers"><div class="wrap">
+  <div class="sec-eyebrow">07 — CATALOG</div>
+  <h2>81 篇论文目录</h2>
+  <p class="h2sub">arXiv ID 可点击跳转 · 按主题目录 / 阅读深度 / 关键词过滤 · PDF 在 <code>reference/0X-*/</code></p>
+  <div class="filters">
+    <select id="fCat"><option value="">全部目录</option>
+      <option value="01">01 陈旧/污染 ·9</option><option value="02">02 写入固化 ·4</option>
+      <option value="03">03 基准 ·18</option><option value="04">04 方法学 ·6</option>
+      <option value="05">05 安全治理 ·12</option><option value="06">06 系统基线 ·5</option>
+      <option value="07">07 RL 策略 ·10</option><option value="08">08 context×memory ·17</option></select>
+    <select id="fDep"><option value="">全部深度</option><option value="3">深读 ·11</option><option value="2">主体 ·27</option><option value="1">摘要级 ·13</option></select>
+    <input id="fQ" placeholder="按关键词过滤（标题 / 发现 / ID）…">
+    <span id="cnt"></span>
+  </div>
+  <div class="tblwrap"><table><thead><tr><th style="width:115px">arXiv</th><th>短名</th><th style="width:42px">目录</th><th style="width:64px">深度</th><th>关键发现 / 数字（自报）</th></tr></thead><tbody id="tb"></tbody></table></div>
+</div></section>
+
+<div class="wrap"><div class="honest">
+  <b>诚实声明（读前必读）</b>
+  <ul>
+    <li>所有数字均为<b>论文自报</b>，未经独立复现；单链/单跑结果只作探索性证据。</li>
+    <li>Eywa 为单作者公司白皮书（未同行评审）；SleepGate 为 793K 参数 POC；Supersede 训练结果为单跑。证据强度已分层标注。</li>
+    <li>"记忆有用"的文献证据普遍薄，"记忆污染"的证据硬——跑出"无显著差异或更差"是正常结果而非项目失败。</li>
+    <li>阅读分级：11 篇逐段（问题定义→结果表），36 篇主体（intro+设计+结果），17 篇摘要级（已在上表标注）。</li>
+  </ul>
+</div>
+<footer>Dynamics-memory · reference/literature-report.html · 数据内嵌、离线可开 · 与 notes-agent-memory-efficacy.md 同步于 2026-10-11</footer></div>
+
+<script>
+const P=[
+["2608.07429","TEPA","01",3,"污染形式化+相位协议；撤销语义把反转相位 0.210→0.950（无记忆 0.309）"],
+["2605.06527","STALE","01",3,"隐式冲突最强模型 55.2%；adjudication gap：新证据可见≠被采信（77.5% vs 88.2%）"],
+["2609.38866","Stale Binding","01",3,"新旧同 context 仍答旧值；复述一次→75-94% 旧值错；写时修复 92.8→8.7%"],
+["2506.08184","PI-LLM","01",2,"前摄干扰对数线性跌到 0；显式『忽略旧值』几乎无效；IES∝参数不∝窗口"],
+["2605.30233","Entity Tracking","01",2,"模型不做增量状态追踪，查询时并行拉取；REMOVE=脆弱全局抑制 tag"],
+["2410.00382","佯装遗忘","01",1,"训练版 unlearning 只是末层掩码，中间层仍算出答案"],
+["2601.15495","Track","01",2,"注入正确但冲突的事实有时比不给还差；冲突越多越差；FKE/HP 指标"],
+["2606.27472","Supersede","01",3,"有界记忆 92→77%（p<0.005）；长度 24×→68→28%；扩容量无恢复；GRPO 9→16.7%"],
+["2605.12978","Faulty Memories","02",3,"GT 输入固化后仍错 54%；误分组/剥条件/窄流过拟合三机制；episodic-only 打平"],
+["2607.01523","MHM","02",3,"捕获稳定、保留 896K 跌破 30%；分区+select-then-update→74%（免训练）"],
+["2608.22215","Dual-Layer","02",1,"双轨写入路由（快进慢出），摘要级"],
+["2603.14517","SleepGate","02",2,"KV 遗忘门 POC（793K）；干扰视界 O(n)→O(log n) 仅理论"],
+["2609.08435","EvolveScaler","03",3,"spec-first 账本生成状态演化语料；聚合错 46-56% 是最大失败类"],
+["2410.10813","LongMemEval","03",2,"经典基准；knowledge update+abstention；Chain-of-Note +10pp；间接证据嵌入"],
+["2605.12493","LongMemEval-V2","03",2,"轨迹 haystack 至 115M；三池 AgentRunbook；premise awareness 题型"],
+["2507.05257","MemoryAgentBench","03",3,"四能力 AR/TTL/LRU/SF；FactCon-MH 全员≤28%；BM25 选择性遗忘胜 Mem0/Zep"],
+["2604.20006","Memora/FAMA","03",2,"遗忘感知准确率罚失效记忆复用；既有基准固化深度仅~1会话"],
+["2602.16313","MemoryArena","03",2,"记忆-行动-环境闭环；LoCoMo 饱和者在此崩"],
+["2601.19935","Mem2ActBench","03",2,"记忆→行动；retrieved-but-unused 失败类；Blinded discriminator 防泄漏"],
+["2608.00009","AgentMemBench","03",2,"EKV 全优、长距召回分水岭；CBS 靠 provenance 亚军"],
+["2602.11243","StructMemEval","03",2,"组织型任务检索法过不了规模阈值；不提示认不出结构"],
+["2610.03020","DyadMem","03",2,"金记忆 78-96% vs 全管线 47.7/57.4%；unsafe-deletion 命名"],
+["2603.01966","AMemGym","03",2,"on-policy 模拟用户+状态演化；Write/Read/Utilization 诊断"],
+["2607.12893","MemOps","03",3,"五类生命周期操作；Leakage/StaleValue 指标；session≫turn 检索；DeepSeek 反常"],
+["2511.03506","HaluMem","03",2,"幻觉在抽取/更新阶段产生并传播；写阶段是瓶颈（Mem0 2768min vs 42min）"],
+["2606.29914","MemDelta","04",2,"单变量协议；自产记忆 42%<裸RAG 47%；换 embedding 翻转结论 +6.2pp"],
+["2605.07313","Stored Evidence","04",2,"无关会话堆积致证据不可用；预算事后判定法"],
+["2602.19320","Anatomy","04",2,"agency tax：维护吞吐跟不上→记忆陈旧；排空后评测偏乐观"],
+["2603.15892","时间冲突复现","04",2,"DYNAMICQA vs MULAN 结论相反；度量+渲染格式决定答案"],
+["2604.27891","编排反方","04",2,"程序化任务 LangGraph 编排差于 in-context（多花 1.2-1.7×）"],
+["2511.10523","ConvoMem","04",2,"<150 次对话 Mem0 式 RAG 30-45% vs 全上下文 70-82%；小语料是记忆独特性"],
+["2606.04329","MPBench","05",2,"4 写入通道 9 漏洞 6 攻击；ASR~50%；prompt 防线不覆盖记忆投毒"],
+["2606.23195","Memory Contagion","05",2,"oracle 固化也挡不住有偏输入；Γ=11.45 不可复现→作者自降级为动机"],
+["2603.11768","SSGM","05",1,"治理与演化解耦框架；三失效接口（概念性，无实验）"],
+["2605.14421","MemLineage","05",2,"chain-of-custody；签名+派生DAG+强边传播；防 memory laundering；K=5→τ≤0.10"],
+["2609.22818","Price of Safety","05",2,"写时防御良性损失~0；reranker 误隔离 33.6%；T=0 三次复跑才可信"],
+["2605.22842","Misattribution Gap","05",2,"记忆攻击与模型失调行为不可区分；64 失败全归咎模型；CCT 定位 87.5%"],
+["2608.01637","Salami/MemCollusion","05",2,"多条无害记忆联合诱导；MSR 81.3%/ASR 75.0%；逐条过滤防不了组合"],
+["2504.19413","Mem0","06",1,"生产基线：判分 +26%、延迟 -91%；摘要级"],
+["2501.13956","Zep","06",1,"时态 KG+validity 区间；episode+semantic 双层≈我们 L0+事实层"],
+["2305.10250","MemoryBank","06",1,"Ebbinghaus 遗忘曲线起源；摘要级"],
+["2502.12110","A-MEM","06",1,"Zettelkasten 式互链笔记；摘要级"],
+["2605.30771","Eywa","06",3,"最近邻系统：evidence-before-belief+零LLM验证+幂等投影；差异在授权级 vs 词面级"],
+["2508.19828","Memory-R1","07",2,"RL 学 ADD/UPDATE/DELETE/NOOP；152 条训练超 Mem0；judge 奖励学出冗长答案"],
+["2605.21768","Memory-R2","07",3,"记忆使环境非平稳→功劳归因失真；同态重 rollout（=我们因果屏障的 RL 版）"],
+["2606.08644","Rebinding Circuit","01",2,"LLM 不做全局状态更新，只在检索时局部重映射 binding ID（~3-10% 组件）"],
+["2605.14498","GroupMemBench","03",2,"多人记忆三轴；最强系统 46%、知识更新 27.1%；摄入抹掉说话人身份"],
+["2512.06688","PersonaMem-v2","03",2,"隐式人格：偏好从不明说；前沿模型 37-48%；agentic 记忆 55% 省 16× 输入"],
+["2602.03587","CL-Bench","03",2,"context learning 前沿仅 17.2%（最好 23.7%）——读者侧学习本身未解"],
+["2606.22877","DynamicMem","03",2,"15月×2.2M token 轨迹；>93% 失败在检索端；偏好/实体命名最难"],
+["2402.16288","PerLTQA","03",1,"语义+情节记忆分类/检索/合成 QA；摘要级"],
+["2512.16962","MemoryGraft","05",2,"毒「成功经验」程序模板；语义模仿启发式；无触发器跨会话漂移"],
+["2602.15654","Zombie Agents","05",2,"载荷针对滑窗/RAG 淘汰逻辑反向定制存续；写路径=攻击面"],
+["2605.29960","MemPoison","05",1,"绕过选择性记忆机制种后门；摘要级"],
+["2607.14651","MemPoison v2","05",1,"持久记忆威胁与结构盲区；摘要级"],
+["2602.03224","TAME","05",2,"misevolution：无攻击者下任务分数驱动也侵蚀安全；Executor-Evaluator 信任反馈"],
+["2507.02259","MemAgent","07",1,"多轮对话 RL 记忆 agent；摘要级"],
+["2603.29493","MemFactory","07",1,"记忆推理+训练统一框架；摘要级"],
+["2507.13334","CE Survey","08",2,"context engineering 分类学：检索/处理/管理三组件 × RAG/记忆/工具/MAS 四实现"],
+["2510.26493","CE 2.0","08",1,"context engineering 的语境史观；摘要级"],
+["2510.04618","ACE","08",2,"brevity bias + context collapse → 结构化增量 playbook；+10.6% agent，无标签"],
+["2604.20874","Root Theorem","08",2,"两公理推出信号/token 比目标；压缩器在信道内→验证门必须外部化"],
+["2310.08560","MemGPT","08",1,"虚拟 context 管理先驱，OS 比喻；摘要级"],
+["2507.03724","MemOS","08",1,"记忆 OS：生命周期 + 三种记忆形态；摘要级"],
+["2603.09023","Pichay","08",2,"context=L1 cache；857 会话 21.8% 浪费；按需分页 fault 0.0254%"],
+["2604.10352","ClawVM","08",2,"harness 级记忆契约：typed page + 最低保真 + validated writeback + fault"],
+["2610.07309","Admissibility","08",2,"relevant≠admissible；namespace 预筛召回 0.432→0.533；exposure→disclosure"],
+["2607.23809","ACM","08",2,"agent 自主压缩 + 无损 offload 外部记忆；+27% BrowseComp-Plus"],
+["2510.11967","Context-Folding","08",1,"子轨迹折叠成长程 agent；摘要级"],
+["2510.24699","AgentFold","08",1,"主动折叠的 web agent；摘要级"],
+["2512.22087","Context-as-Tool","08",1,"SWE agent 的 context 工具化；摘要级"],
+["2605.30785","Learn-CM","08",1,"学习 agent 兼容的 context 管理策略；摘要级"],
+["2601.05960","Memory-as-Tool","08",1,"反馈蒸馏为可检索指南；摘要级"],
+["2602.06052","Mem Survey II","08",1,"agent memory 综述（second half）；摘要级"],
+["2607.13157","Oracle Agent Mem","08",1,"企业级记忆基底；摘要级"],
+["2603.00680","MemPO","07",1,"自记忆策略优化；摘要级"],
+["2601.01885","AgeMem","07",1,"LTM/STM 统一管理；摘要级"],
+["2509.25911","Mem-α","07",1,"RL 学记忆构建；摘要级"],
+["2601.23014","Mem-T","07",1,"长程记忆 agent 稠密奖励；摘要级"],
+["2601.08323","AtomMem","07",1,"原子记忆操作可学习；摘要级"],
+["2604.01560","DeltaMem","07",1,"RL 持久记忆管理；摘要级"],
+];
+const tb=document.getElementById("tb"),fC=document.getElementById("fCat"),fD=document.getElementById("fDep"),fQ=document.getElementById("fQ"),cnt=document.getElementById("cnt");
+const DN={3:"深读",2:"主体",1:"摘要级"};
+function render(){
+  const c=fC.value,d=fD.value,q=fQ.value.toLowerCase();
+  const rows=P.filter(p=>(!c||p[2]===c)&&(!d||String(p[3])===d)&&(!q||(p[0]+p[1]+p[4]).toLowerCase().includes(q)));
+  tb.innerHTML=rows.map(p=>`<tr><td class="id"><a href="https://arxiv.org/abs/${p[0]}" target="_blank" rel="noopener">${p[0]}</a></td><td><b>${p[1]}</b></td><td class="f">${p[2]}</td><td><span class="dep d${p[3]}">${DN[p[3]]}</span></td><td>${p[4]}</td></tr>`).join("");
+  cnt.textContent=rows.length+" / "+P.length;
+}
+[fC,fD,fQ].forEach(e=>e.addEventListener("input",render));render();
+</script>
+</body>
+</html>

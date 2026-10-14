@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+
+# 私人原始日志与评测产物（本机私有，不上传）
+.tasklog/
+
+# 测试/运行残留临时目录与数据库
+.tmp-*/
+
+# 可再生 fixture（scripts/make-demo.ts 生成，自带独立 git 历史）
+tasklog/demo-repo/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 构建与日志
+dist/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store

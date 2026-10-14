@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>不替模型记忆，只替它保管证据 · mvp-2 tasklog</title>
+<style>
+:root{
+  --bg:#0e1116; --paper:#faf9f7; --panel:#fff;
+  --ink:#11151a; --ink2:#48515d; --ink3:#7b8694; --line:#e4e2dd; --line2:#f0eeea;
+  --git:#5a4fcf; --git-bg:#eeedfb; --git-ln:#c9c5f0;
+  --mem:#0b8a5b; --mem-bg:#e9f7f1; --mem-ln:#a9dcc6;
+  --warn:#bb2d2d; --warn-bg:#fdeded; --warn-ln:#f2bcbc;
+  --amber:#b4720c; --amber-bg:#fdf3e2; --amber-ln:#f0d39a;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;
+  line-height:1.8;-webkit-font-smoothing:antialiased}
+
+/* ---------------- deck ---------------- */
+#deck{position:fixed;inset:0}
+.slide{position:absolute;inset:0;display:flex;opacity:0;pointer-events:none;
+  transform:translateX(44px) scale(.99);
+  transition:opacity .4s ease,transform .5s cubic-bezier(.22,.7,.3,1);
+  overflow:hidden}
+.slide.active{opacity:1;pointer-events:auto;transform:none;z-index:2}
+.slide.left{transform:translateX(-44px) scale(.99)}
+.inner{margin:auto;width:100%;max-width:1080px;padding:74px 54px 86px;
+  max-height:100%;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+.inner::-webkit-scrollbar{width:7px}
+.inner::-webkit-scrollbar-thumb{background:#d8d4cd;border-radius:4px}
+.slide.dark{background:var(--bg);color:#fff}
+.slide.dark .inner{color:#fff}
+
+/* reveal inside a slide, re-triggered on each entry */
+.rv{opacity:0;transform:translateY(18px);
+  transition:opacity .5s cubic-bezier(.2,.7,.3,1),transform .5s cubic-bezier(.2,.7,.3,1)}
+.slide.active .rv.go{opacity:1;transform:none}
+.rv.d1{transition-delay:.07s}.rv.d2{transition-delay:.14s}.rv.d3{transition-delay:.21s}
+.rv.d4{transition-delay:.28s}.rv.d5{transition-delay:.35s}.rv.d6{transition-delay:.42s}
+.rv.d7{transition-delay:.49s}.rv.d8{transition-delay:.56s}
+.pop{opacity:0;transform:scale(.9);transition:opacity .42s ease,transform .42s cubic-bezier(.2,1.25,.4,1)}
+.slide.active .go .pop,.slide.active .pop.go{opacity:1;transform:none}
+.draw{stroke-dasharray:var(--len,300);stroke-dashoffset:var(--len,300);transition:stroke-dashoffset .95s cubic-bezier(.25,.6,.3,1) .2s}
+.slide.active .go .draw{stroke-dashoffset:0}
+@media(prefers-reduced-motion:reduce){
+  .rv,.pop{opacity:1!important;transform:none!important;transition:none!important}
+  .draw{stroke-dashoffset:0!important}
+  .slide{transition:opacity .01s!important;transform:none!important}
+  *{animation:none!important}
+}
+
+/* ---------------- chrome ---------------- */
+.actlbl{position:fixed;top:0;left:0;right:0;z-index:30;padding:20px 30px;
+  display:flex;align-items:center;gap:14px;pointer-events:none}
+.actlbl .a{font:700 11.5px/1 var(--mono);letter-spacing:.18em;color:var(--git)}
+.actlbl .t{font:600 12.5px/1 var(--sans);color:var(--ink3)}
+.slide.dark~#chrome .actlbl .a{color:#9b93f0}
+.ctr{margin-left:auto;font:600 12px/1 var(--mono);color:var(--ink3);pointer-events:auto}
+#chrome.on-dark .actlbl .a{color:#9b93f0}
+#chrome.on-dark .actlbl .t,#chrome.on-dark .ctr{color:#8995a6}
+#chrome.on-dark .dots i{background:#39414d}
+#chrome.on-dark .dots i.on{background:#fff}
+#chrome.on-dark .hint{color:#6d7988;border-color:#2a313b}
+#chrome.on-dark .navbtn{color:#8995a6;border-color:#2a313b;background:rgba(255,255,255,.04)}
+#chrome.on-dark .navbtn:hover{color:#fff;border-color:#49525f}
+
+.botbar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:18px 30px;
+  display:flex;align-items:center;gap:16px}
+.dots{display:flex;gap:4px;flex:1;align-items:center;flex-wrap:wrap}
+.dots i{width:16px;height:4px;border-radius:2px;background:#dcd8d1;cursor:pointer;
+  transition:.2s;display:block}
+.dots i:hover{background:#b5afa5}
+.dots i.on{background:var(--ink);width:26px}
+.dots .gap{width:9px;height:4px;background:none;cursor:default}
+.navbtn{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:#fff;
+  display:grid;place-items:center;cursor:pointer;color:var(--ink2);font-size:14px;
+  transition:.16s;flex:none;user-select:none}
+.navbtn:hover{border-color:var(--ink3);color:var(--ink)}
+.navbtn:disabled{opacity:.3;cursor:default}
+.hint{font:500 11.5px/1 var(--mono);color:var(--ink3);border:1px solid var(--line);
+  border-radius:7px;padding:6px 10px;letter-spacing:.04em;flex:none}
+@media(max-width:760px){.hint{display:none}.inner{padding:66px 24px 84px}}
+
+/* click zones */
+.zone{position:fixed;top:0;bottom:0;width:11%;z-index:20;cursor:pointer}
+.zone.l{left:0}.zone.r{right:0}
+
+/* overview */
+#ov{position:fixed;inset:0;z-index:50;background:rgba(14,17,22,.96);backdrop-filter:blur(10px);
+  display:none;overflow-y:auto;padding:54px 40px}
+#ov.show{display:block}
+#ov h3{color:#fff;font-size:20px;margin:0 0 24px;font-weight:700}
+.ovact{margin-bottom:26px}
+.ovact>b{display:block;font:700 11px/1 var(--mono);letter-spacing:.16em;color:#9b93f0;margin-bottom:11px}
+.ovlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:9px}
+.ovlist a{display:block;text-decoration:none;background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 14px;transition:.16s}
+.ovlist a:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.26)}
+.ovlist .n{font:600 10.5px/1 var(--mono);color:#7c8796;margin-bottom:5px}
+.ovlist .s{color:#e6eaef;font-size:14px;font-weight:550;line-height:1.5}
+.ovlist a.cur{background:#5a4fcf;border-color:#8c84e8}
+.ovlist a.cur .n{color:#cdc8f5}.ovlist a.cur .s{color:#fff}
+
+/* ---------------- typography ---------------- */
+h1{font-size:clamp(34px,4.4vw,52px);line-height:1.14;letter-spacing:-.03em;margin:0 0 20px;font-weight:750}
+h2{font-size:clamp(26px,3.1vw,38px);line-height:1.22;letter-spacing:-.025em;margin:0 0 18px;font-weight:730}
+h3{font-size:19px;margin:30px 0 11px;font-weight:680}
+h4{font-size:15.5px;margin:20px 0 7px;font-weight:680;color:var(--ink2)}
+.dark h4{color:#aeb8c6}
+p{margin:0 0 15px}
+.lede{font-size:clamp(17px,1.7vw,21px);line-height:1.68;color:var(--ink2);margin-bottom:24px;max-width:760px}
+.dark .lede{color:#aeb8c6}
+.beat{font-size:clamp(19px,2.1vw,25px);line-height:1.52;font-weight:640;letter-spacing:-.018em;margin:24px 0}
+.kick{font:700 11.5px/1 var(--mono);letter-spacing:.17em;color:var(--git);margin-bottom:14px}
+.dark .kick{color:#9b93f0}
+code{font-family:var(--mono);font-size:.85em;background:#f1efeb;padding:1.5px 5px;border-radius:4px;border:1px solid #e6e3dd}
+.dark code{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.14);color:#dfe5ec}
+strong{font-weight:680}
+mark{background:linear-gradient(transparent 56%,#ffe08a 56%);padding:0 2px;color:inherit}
+.dark mark{background:linear-gradient(transparent 56%,rgba(143,135,232,.5) 56%);color:#fff}
+a{color:var(--git)}
+
+/* ---------------- components ---------------- */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:22px 0}
+@media(max-width:860px){.two,.three{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:19px 21px}
+.card h4{margin-top:0}
+.card.bad{background:var(--warn-bg);border-color:var(--warn-ln)}
+.card.ok{background:var(--mem-bg);border-color:var(--mem-ln)}
+.card.git{background:var(--git-bg);border-color:var(--git-ln)}
+.card.amb{background:var(--amber-bg);border-color:var(--amber-ln)}
+.dark .card{background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.12)}
+
+.note{border-left:3px solid var(--line);padding:14px 19px;margin:20px 0;background:var(--panel);
+  border-radius:0 11px 11px 0;font-size:15.5px;line-height:1.72}
+.note .nt{font-weight:680;display:block;margin-bottom:4px;font-size:14.5px}
+.note.git{border-left-color:var(--git);background:var(--git-bg)}
+.note.ok{border-left-color:var(--mem);background:var(--mem-bg)}
+.note.bad{border-left-color:var(--warn);background:var(--warn-bg)}
+.note.amb{border-left-color:var(--amber);background:var(--amber-bg)}
+
+.mapRow{display:grid;grid-template-columns:1fr 50px 1fr;align-items:stretch;margin:20px 0}
+@media(max-width:860px){.mapRow{grid-template-columns:1fr;gap:8px}.mapRow .mid{display:none}}
+.mapRow .g,.mapRow .m{padding:17px 20px;border:1px solid;border-radius:12px}
+.mapRow .g{background:var(--git-bg);border-color:var(--git-ln)}
+.mapRow .m{background:var(--mem-bg);border-color:var(--mem-ln)}
+.mapRow .mid{display:grid;place-items:center;color:var(--ink3);font-size:19px}
+.mapRow .lbl{font:700 10px/1 var(--mono);letter-spacing:.13em;margin-bottom:7px}
+.mapRow .g .lbl{color:var(--git)}.mapRow .m .lbl{color:var(--mem)}
+.mapRow .nm{font:600 15.5px/1.4 var(--mono);margin-bottom:4px}
+.mapRow .ds{font-size:14px;color:var(--ink2);line-height:1.58}
+
+.turn{display:flex;gap:12px;margin-bottom:11px;align-items:flex-start}
+.turn .who{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
+  font:700 11.5px/1 var(--sans);color:#fff}
+.turn.u .who{background:#3d4654}
+.turn.a .who{background:var(--mem)}
+.turn .say{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  padding:10px 15px;font-size:15.5px;line-height:1.62;flex:1}
+.turn.a .say{background:var(--mem-bg);border-color:var(--mem-ln)}
+.turn .say em{font-style:normal;color:var(--ink3);font-size:13px;display:block;margin-top:3px}
+.daytag{font:700 10.5px/1 var(--mono);letter-spacing:.15em;color:var(--ink3);margin:0 0 10px}
+
+figure{margin:20px 0 0;padding:0;border:0;background:none}
+figure svg{display:block;width:100%;height:auto}
+figcaption{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2);
+  font-size:13px;color:var(--ink3);line-height:1.68}
+figcaption b{color:var(--ink2)}
+
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:460px}
+th{text-align:left;padding:10px 14px;background:#f6f4f0;border-bottom:1px solid var(--line);
+  font-weight:680;font-size:12px;color:var(--ink2);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--line2);vertical-align:top;line-height:1.58}
+tr:last-child td{border-bottom:0}
+td code{font-size:12px}
+
+ul.clean{list-style:none;padding:0;margin:14px 0}
+ul.clean li{position:relative;padding-left:20px;margin-bottom:9px;line-height:1.68}
+ul.clean li::before{content:"";position:absolute;left:4px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--ink3)}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:18px 0}
+ol.steps li{counter-increment:s;position:relative;padding-left:40px;margin-bottom:14px;line-height:1.68}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:25px;height:25px;border-radius:50%;
+  background:var(--ink);color:#fff;font:700 12.5px/25px var(--mono);text-align:center}
+ol.steps li b{display:block;margin-bottom:1px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:11px;margin:20px 0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.stat .n{font:750 25px/1.1 var(--sans);letter-spacing:-.03em;margin-bottom:4px}
+.stat .l{font-size:12px;color:var(--ink3);line-height:1.5}
+.chip{display:inline-flex;align-items:center;gap:6px;font:680 11px/1 var(--sans);
+  padding:4px 9px;border-radius:999px;border:1px solid;white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.c-keep{color:var(--mem);background:var(--mem-bg);border-color:var(--mem-ln)}
+.c-ops{color:var(--amber);background:var(--amber-bg);border-color:var(--amber-ln)}
+.c-redo{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-ln)}
+
+/* fragment clue card */
+.frag{background:#10141b;border:1px solid #28313d;border-radius:11px;padding:13px 16px;
+  font-family:var(--mono);font-size:12.5px;color:#c6d0dd;margin:14px 0;line-height:1.7}
+.frag .fh{color:#8c84e8;font-weight:600;display:block;margin-bottom:6px;font-size:11px;letter-spacing:.06em}
+.frag .fe{color:#e06060;font-weight:600}
+.frag .fv{color:#d9a441;font-weight:600}
+
+/* hero ledger */
+.heroGrid{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center}
+@media(max-width:900px){.heroGrid{grid-template-columns:1fr;gap:28px}}
+.ledger{background:#0a0d12;border:1px solid #242b35;border-radius:13px;padding:16px;
+  font-family:var(--mono);font-size:12px;box-shadow:0 22px 60px rgba(0,0,0,.5)}
+.ledger .lt{color:#5e6a7a;font-size:10px;letter-spacing:.14em;margin-bottom:12px;display:flex;gap:7px;align-items:center}
+.ledger .lt i{width:7px;height:7px;border-radius:50%;background:#2fbf71;display:inline-block;animation:blink 1.9s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.ev{display:flex;gap:10px;padding:4px 0;opacity:0;transform:translateX(-10px)}
+.slide.active .ledger .ev{animation:evin .45s cubic-bezier(.2,.8,.3,1) forwards}
+.ev .h{color:#8c84e8;font-weight:600;flex:none}
+.ev .o{flex:none;width:86px}
+.ev .m{color:#8b96a5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev.c1 .o{color:#2fbf71}.ev.c2 .o{color:#d9a441}.ev.c3 .o{color:#e06060}
+@keyframes evin{to{opacity:1;transform:none}}
+.slide.active .ev:nth-child(2){animation-delay:.25s}.slide.active .ev:nth-child(3){animation-delay:.6s}
+.slide.active .ev:nth-child(4){animation-delay:.95s}.slide.active .ev:nth-child(5){animation-delay:1.3s}
+.slide.active .ev:nth-child(6){animation-delay:1.65s}.slide.active .ev:nth-child(7){animation-delay:2s}
+.slide.active .ev:nth-child(8){animation-delay:2.35s}
+.lnote{margin-top:12px;padding-top:10px;border-top:1px solid #1d232c;font-size:10.5px;color:#6d788a;line-height:1.6}
+.heroMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px}
+.hm{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:8px;
+  padding:7px 12px;font:600 11.5px/1.5 var(--mono);color:#cfd7e2}
+.hm s{text-decoration:none;color:#7d8899;display:block;font-size:9.5px;letter-spacing:.09em;font-weight:500}
+.endline{font-size:clamp(20px,2.4vw,28px);line-height:1.48;font-weight:660;letter-spacing:-.02em;color:#fff}
+
+@media print{
+  html,body{height:auto;overflow:visible}
+  #deck{position:static}
+  .slide{position:static;opacity:1!important;transform:none!important;page-break-after:always;min-height:100vh}
+  .rv,.pop{opacity:1!important;transform:none!important}
+  .draw{stroke-dashoffset:0!important}
+  .actlbl,.botbar,.zone,#ov{display:none!important}
+}
+</style>
+</head>
+<body>
+<noscript><style>.slide{position:static!important;opacity:1!important;transform:none!important}
+.rv,.pop{opacity:1!important;transform:none!important}.draw{stroke-dashoffset:0!important}
+html,body{overflow:auto!important;height:auto!important}#deck{position:static!important}</style></noscript>
+
+<div id="deck">
+
+<!-- ============ 00 封面 ============ -->
+<section class="slide dark" data-act="封面" data-title="不替模型记忆，只替它保管证据">
+  <div class="inner">
+    <div class="heroGrid">
+      <div>
+        <div class="kick rv">mvp-2 &#183; tasklog &#183; 架构导读</div>
+        <h1 class="rv d1">不替模型记忆，<br>只替它保管证据</h1>
+        <p class="lede rv d2">
+          LLM 的 context 是无状态的，跨会话的状态转移必须有一个显式载体。<br>
+          这个设计的回答是：<mark>原文落库、机械索引、让 agent 自己把心智模型读出来</mark>。
+        </p>
+        <div class="heroMeta rv d3">
+          <div class="hm"><s>EVENTS</s>23,424 条去重事件</div>
+          <div class="hm"><s>SOURCE</s>Devin 12 个真实会话</div>
+          <div class="hm"><s>CHECKS</s>322 项机制通过</div>
+          <div class="hm"><s>EVAL</s>首个真实三臂已跑完</div>
+        </div>
+      </div>
+      <div class="rv d2">
+        <div class="ledger">
+          <div class="lt"><i></i>EVENTS &#183; APPEND-ONLY &#183; 真实导入样例</div>
+          <div class="ev c1"><span class="h">s04#118</span><span class="o">user</span><span class="m">barrier_timeout 语义不对，超时不能算成功</span></div>
+          <div class="ev c1"><span class="h">s04#119</span><span class="o">tool_call</span><span class="m">edit_file run_audit_chain.py</span></div>
+          <div class="ev c3"><span class="h">s04#120</span><span class="o">tool_result</span><span class="m">ERROR · 缩进不匹配 → blob e9f2</span></div>
+          <div class="ev c1"><span class="h">s04#121</span><span class="o">tool_call</span><span class="m">bash python -m pytest</span></div>
+          <div class="ev c3"><span class="h">s04#122</span><span class="o">tool_result</span><span class="m">ERROR · fence 未排空未就绪探针</span></div>
+          <div class="ev c2"><span class="h">s04#123</span><span class="o">assistant</span><span class="m">改用 barrier 前先排空 inline 队列</span></div>
+          <div class="ev c1"><span class="h">s04#124</span><span class="o">tool_result</span><span class="m">ok · tests pass</span></div>
+          <div class="lnote">注意第 3、5 行：失败过程是<strong style="color:#aeb8c6">一等公民</strong>——成功的过程留在代码里，失败的过程只留在日志里。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 第一幕 ============ -->
+<section class="slide" data-act="第一幕 · 问题" data-title="写入时就错了">
+  <div class="inner">
+    <div class="kick rv">第一幕 &#183;&nbsp; 问题</div>
+    <h2 class="rv d1">大多数 agent-memory，<br>在写入的那一刻就已经输了</h2>
+    <p class="lede rv d2">典型管线：对话结束 &rarr; LLM 蒸馏成"记忆条目" &rarr; 存进池子 &rarr; 下次召回注入。每一环都在丢东西。</p>
+    <div class="three rv d3">
+      <div class="card bad">
+        <h4 style="color:var(--warn)">写入时取舍必错</h4>
+        <p style="margin:0;font-size:15px">写入时不知道未来会被问什么，只能按"通用重要性"压。而真实查询常常要的正是当时看起来不重要的那句"因为 Y"。<strong>这是结构性的，换强模型救不了。</strong></p>
+      </div>
+      <div class="card bad">
+        <h4 style="color:var(--warn)">蒸馏件没有作废标记</h4>
+        <p style="margin:0;font-size:15px">"决定用 X"进了池子；三天后推翻了它改成 Y。池子里 X 和 Y 并排躺着，<mark>谁作数？</mark>旧值与新候选并排端出、已作废值继续服务——项目里 N53 三链复现过这个病。</p>
+      </div>
+      <div class="card bad">
+        <h4 style="color:var(--warn)">错了的也被蒸馏</h4>
+        <p style="margin:0;font-size:15px">助手答错的内容一样会被提炼成记忆。eval/BASELINE.md 的消融记录：去掉衰减/去重/张力三个机制，recall 反而更高——<strong>敌人在内核，不在模型</strong>。</p>
+      </div>
+    </div>
+    <div class="note amb rv d4">
+      <span class="nt">压缩的罪不在压缩，在压缩后删原件</span>
+      判据只有一条：<strong>这个加工件错了，原始信息还找得回来吗？</strong>找得回来就安全，找不回来就是单点故障。
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第一幕 · 问题" data-title="coding 场景的三张底牌">
+  <div class="inner">
+    <div class="kick rv">第一幕 &#183;&nbsp; 问题</div>
+    <h2 class="rv d1">好在 coding 场景手里有三张底牌</h2>
+    <p class="lede rv d2">通用对话记忆难做，是因为没有外部真值。coding 不一样。</p>
+    <div class="three rv d3">
+      <div class="card git">
+        <h4 style="color:var(--git)">① 世界是权威的</h4>
+        <p style="margin:0;font-size:15px">文件系统、git、测试结果就是<mark>当前态真值</mark>。记忆说"决定用 JWT"，grep 一下就知道做没做——陈旧决策污染大部分被外部 oracle 消解。</p>
+      </div>
+      <div class="card git">
+        <h4 style="color:var(--git)">② 任务边界大半免费</h4>
+        <p style="margin:0;font-size:15px">commit、分支切换、测试由红转绿都是天然任务边界——issue/PR/bug 就是现成的分段单元，不用费劲推断。</p>
+      </div>
+      <div class="card git">
+        <h4 style="color:var(--git)">③ 查询常是精确符号</h4>
+        <p style="margin:0;font-size:15px">函数名、路径、错误码、测试名——倒排索引在这类查询上是<mark>确定性的</mark>，零幻觉、零延迟、可审计。</p>
+      </div>
+    </div>
+    <p class="beat rv d4" style="text-align:center">
+      所以 coding 域的记忆真正要回答的不是「现在是什么」——<br>
+      是<mark>「为什么是这样」「什么试过且失败了」「我们的惯例是什么」</mark>。<br>
+      这三类恰好全是<strong>原文比蒸馏好</strong>的负载。
+    </p>
+  </div>
+</section>
+
+<!-- ============ 第二幕 ============ -->
+<section class="slide" data-act="第二幕 · 主张" data-title="四条核心主张">
+  <div class="inner">
+    <div class="kick rv">第二幕 &#183;&nbsp; 核心主张</div>
+    <h2 class="rv d1">四条主张，整个设计立在这上面</h2>
+    <ol class="steps rv d2">
+      <li><b>显著性是查询条件化的</b>写入时的取舍必错 → 不取舍，全留原文。</li>
+      <li><b>压缩的罪在删原件</b>摘要只准做导航（决定读不读），不准做替代（代替原文被消费）。</li>
+      <li><b>权威分离</b>「现在是什么」问世界（代码/git/测试）；「为什么这样、试过什么没成」问日志。拿日志推现状，是用副本对抗原件。</li>
+      <li><b>全量暴露不是上界</b>日志里失败尝试和作废结论没有作废标记，必须裁剪；但裁剪依据只能是<mark>机械规则</mark>，不是"重要性"。</li>
+    </ol>
+    <div class="note git rv d3">
+      <span class="nt">一句话</span>
+      写入侧零 LLM：事件原文落库、按任务分段、机械索引；读取侧让 agent 自己把心智模型读出来。
+      <strong>系统里没有 memory 表、没有 summary 表，只有事实表加索引。</strong>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 第三幕 ============ -->
+<section class="slide" data-act="第三幕 · 架构" data-title="三层架构总览">
+  <div class="inner">
+    <div class="kick rv">第三幕 &#183;&nbsp; 架构</div>
+    <h2 class="rv d1">三层：事实、索引、查询</h2>
+    <figure class="rv d2">
+      <svg viewBox="0 0 860 330" role="img" aria-label="三层架构">
+        <g class="pop"><rect x="0" y="196" width="860" height="118" rx="13" fill="#e9f7f1" stroke="#a9dcc6"/>
+          <text x="24" y="228" font-size="14" font-weight="700" fill="#0b8a5b" font-family="ui-monospace,monospace">L0 &#183; 事实层（唯一真值，只 insert 不改）</text>
+          <g font-size="12.5" font-family="ui-monospace,monospace" fill="#15181c">
+            <rect x="24" y="244" width="196" height="52" rx="9" fill="#fff" stroke="#a9dcc6"/>
+            <text x="40" y="266">events</text><text x="40" y="286" fill="#5c6a79" font-size="11">事件级&#183;tool 配对&#183;blob 溢出</text>
+            <rect x="236" y="244" width="196" height="52" rx="9" fill="#fff" stroke="#a9dcc6"/>
+            <text x="252" y="266">tasks + task_edges</text><text x="252" y="286" fill="#5c6a79" font-size="11">任务分段&#183;supersedes</text>
+            <rect x="448" y="244" width="196" height="52" rx="9" fill="#fff" stroke="#a9dcc6"/>
+            <text x="464" y="266">blobs</text><text x="464" y="286" fill="#5c6a79" font-size="11">大原文落盘&#183;按范围读</text>
+            <rect x="660" y="244" width="176" height="52" rx="9" fill="#fff" stroke="#a9dcc6"/>
+            <text x="676" y="266">sources</text><text x="676" y="286" fill="#5c6a79" font-size="11">宿主原始库快照</text>
+          </g></g>
+        <g class="pop" style="transition-delay:.15s"><rect x="0" y="96" width="860" height="84" rx="13" fill="#eeedfb" stroke="#c9c5f0"/>
+          <text x="24" y="126" font-size="14" font-weight="700" fill="#5a4fcf" font-family="ui-monospace,monospace">索引层 &#183; 推断产物，整表可重建</text>
+          <g font-size="12.5" font-family="ui-monospace,monospace" fill="#15181c">
+            <rect x="24" y="138" width="256" height="32" rx="8" fill="#fff" stroke="#c9c5f0"/>
+            <text x="40" y="159">symbols &#183; 倒排 join key</text>
+            <rect x="296" y="138" width="256" height="32" rx="8" fill="#fff" stroke="#c9c5f0"/>
+            <text x="312" y="159">FTS(trigram) &#183; 原话片段</text>
+            <rect x="568" y="138" width="268" height="32" rx="8" fill="#fff" stroke="#c9c5f0" stroke-dasharray="5 4"/>
+            <text x="584" y="159" fill="#8a7cd8">vector &#183; 候选 id（未接入）</text>
+          </g></g>
+        <g class="pop" style="transition-delay:.3s"><rect x="0" y="0" width="860" height="80" rx="13" fill="#fff" stroke="#e4e2dd"/>
+          <text x="24" y="30" font-size="14" font-weight="700" fill="#11151a" font-family="ui-monospace,monospace">查询层 &#183; 7 个只读 MCP 工具（全部带定位符）</text>
+          <text x="24" y="56" font-size="12.5" fill="#48515d" font-family="ui-monospace,monospace">list_tasks &#183; search_history &#183; symbol_history &#183; resume_task &#183; read_events &#183; read_blob &#183; index_health</text></g>
+        <line class="draw" style="--len:20" x1="430" y1="82" x2="430" y2="94" stroke="#b9b3e8" stroke-width="2"/>
+        <line class="draw" style="--len:20" x1="430" y1="182" x2="430" y2="194" stroke="#a9dcc6" stroke-width="2"/>
+      </svg>
+      <figcaption><b>倒着读：</b>查询层服务 agent，索引层服务发现，事实层服务裁决。<b>箭头朝下=依赖，倒着重建=退路</b>：索引错了删掉重建，L0 一个字节不丢。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="slide" data-act="第三幕 · 架构" data-title="events：事件是最细粒度">
+  <div class="inner">
+    <div class="kick rv">第三幕 &#183;&nbsp; 架构 &#183; 事实层</div>
+    <h2 class="rv d1">最细粒度是事件，不是对话</h2>
+    <div class="mapRow rv d2">
+      <div class="g"><div class="lbl">别的系统</div><div class="nm">user_text / assistant_text</div>
+        <div class="ds">只有两列文本。工具世界被过滤两次——<b>没有任何结构能表示「agent 做了 X」</b>，这是 Dynamics-memory 最大的结构性障碍。</div></div>
+      <div class="mid">&rarr;</div>
+      <div class="m"><div class="lbl">TASKLOG</div><div class="nm">role: user | assistant | tool | system</div>
+        <div class="ds"><code>tool_call</code> 与 <code>tool_result</code> 分两行存（时间不同各自可检索），<code>call_id</code> 配对；大结果不落 <code>text</code> 落 <code>blob_ref</code>。</div></div>
+    </div>
+    <div class="two" style="margin-top:18px">
+      <div class="card rv d3">
+        <h4>为什么 tool 行是一等公民</h4>
+        <p style="margin:0;font-size:15px">agent 的行为不是它说了什么，是它<strong>读了什么文件、跑了什么命令、哪步报错了</strong>。砍掉 tool 行，剩下的"记忆"只是一份看不出做过什么的聊天记录。</p>
+      </div>
+      <div class="card rv d4">
+        <h4>为什么大结果落盘</h4>
+        <p style="margin:0;font-size:15px">读一个 5000 行文件，<code>text</code> 只存摘要行（路径、行数、头几行），原文落 blob——否则 FTS 会被<strong>单次文件读</strong>淹没。blob 支持按字节范围读回。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第三幕 · 架构" data-title="tasks：存储与检索的一等单元">
+  <div class="inner">
+    <div class="kick rv">第三幕 &#183;&nbsp; 架构 &#183; 分段</div>
+    <h2 class="rv d1">任务是服务单元，边界是推断产物</h2>
+    <p class="lede rv d2">命中在事件级，服务在任务级——发现通道要细，服务单元要整。</p>
+    <div class="two" style="margin-top:6px">
+      <div class="card rv d3">
+        <h4>边界来源，按可信度排序</h4>
+        <ol class="steps" style="margin:10px 0 0">
+          <li><b>git commit / 分支切换</b>最可信（<code>boundary_src='git'</code>）</li>
+          <li><b>测试由红转绿、文件突变、长间隔</b><code>heuristic</code></li>
+          <li><b>用户显式说"好了/下一个"</b><code>user</code></li>
+        </ol>
+      </div>
+      <div class="card rv d4">
+        <h4><code>boundary_src</code> 必须保留</h4>
+        <p style="margin:0;font-size:15px">边界是推断出来的、允许事后修订。<strong>原文是事实，边界只是索引——索引错了可以重建</strong>，这是本方案相对压缩方案的核心退路。</p>
+        <p style="margin:10px 0 0;font-size:15px"><code>task_edges</code> 里的 <code>supersedes</code> 边是"旧值新候选并排端出"那个病的解法：检索时自动排除被取代的任务。</p>
+      </div>
+    </div>
+    <div class="note amb rv d5">
+      <span class="nt">承重墙存疑（如实标注）</span>
+      检索的服务单元、切点、supersedes 全压在推断边界上。导入的 68 个推断任务没逐个人工审计——<strong>边界错了整层索引跟着错</strong>，目前只有机制测试，没有边界质量专项评估。
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第三幕 · 架构" data-title="写入路径：零 LLM">
+  <div class="inner">
+    <div class="kick rv">第三幕 &#183;&nbsp; 架构 &#183; 写入</div>
+    <h2 class="rv d1">写入路径上没有模型</h2>
+    <figure class="rv d2">
+      <svg viewBox="0 0 860 148" role="img" aria-label="写入路径">
+        <g class="pop" font-size="12.5" font-family="ui-monospace,monospace">
+          <rect x="0" y="20" width="168" height="64" rx="10" fill="#fff" stroke="#e4e2dd"/>
+          <text x="16" y="45" fill="#11151a" font-weight="700">agent 运行时</text>
+          <text x="16" y="66" fill="#5c6a79" font-size="11">事件流</text>
+          <rect x="206" y="20" width="168" height="64" rx="10" fill="#e9f7f1" stroke="#a9dcc6"/>
+          <text x="222" y="45" fill="#0b8a5b" font-weight="700">同步落库</text>
+          <text x="222" y="66" fill="#2d7a5c" font-size="11">events+symbols+FTS</text>
+          <rect x="412" y="20" width="168" height="64" rx="10" fill="#e9f7f1" stroke="#a9dcc6"/>
+          <text x="428" y="45" fill="#0b8a5b" font-weight="700">大结果落 blob</text>
+          <text x="428" y="66" fill="#2d7a5c" font-size="11">text 只存摘要行</text>
+          <rect x="618" y="20" width="242" height="64" rx="10" fill="#eeedfb" stroke="#c9c5f0"/>
+          <text x="634" y="45" fill="#5a4fcf" font-weight="700">异步批：划 task 边界</text>
+          <text x="634" y="66" fill="#6c66a8" font-size="11">git 扫描·回填 task_id·task_edges</text>
+        </g>
+        <g class="pop" style="transition-delay:.2s"><line class="draw" style="--len:36" x1="170" y1="52" x2="204" y2="52" stroke="#7b8694" stroke-width="1.8"/><polygon points="198,47 206,52 198,57" fill="#7b8694"/></g>
+        <g class="pop" style="transition-delay:.3s"><line class="draw" style="--len:36" x1="376" y1="52" x2="410" y2="52" stroke="#7b8694" stroke-width="1.8"/><polygon points="404,47 412,52 404,57" fill="#7b8694"/></g>
+        <g class="pop" style="transition-delay:.4s"><line class="draw" style="--len:36" x1="582" y1="52" x2="616" y2="52" stroke="#7b8694" stroke-width="1.8"/><polygon points="610,47 618,52 610,57" fill="#7b8694"/></g>
+        <g class="pop" style="transition-delay:.5s">
+          <text x="430" y="128" text-anchor="middle" font-size="13.5" fill="#48515d">全程不调用任何模型 —— 没有抽取、没有去重、没有冲突消解、没有衰减，<tspan font-weight="700" fill="#bb2d2d">也没有这些机制各自的 bug</tspan></text>
+        </g>
+      </svg>
+      <figcaption>"更方便"的实际含义：少掉的是<b>写入管道、一致性维护、池容量管理</b>，以及它们各自会犯的错。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ 第四幕 ============ -->
+<section class="slide" data-act="第四幕 · 读路径" data-title="两段式检索">
+  <div class="inner">
+    <div class="kick rv">第四幕 &#183;&nbsp; 读路径</div>
+    <h2 class="rv d1">事件级命中，任务级服务</h2>
+    <figure class="rv d2">
+      <svg viewBox="0 0 860 240" role="img" aria-label="两段式检索">
+        <g class="pop"><rect x="0" y="0" width="272" height="118" rx="13" fill="#eeedfb" stroke="#c9c5f0"/>
+          <text x="20" y="30" font-size="13" font-weight="700" fill="#5a4fcf" font-family="ui-monospace,monospace">发现通道 · 事件级</text>
+          <text x="20" y="56" font-size="12" fill="#48515d">search_history 命中小粒度事件</text>
+          <text x="20" y="78" font-size="12" fill="#48515d">高精度，但只是"这里有东西"</text>
+          <text x="20" y="100" font-size="12" fill="#8a7cd8">返回：命中 + 所属 task_id + 定位符</text></g>
+        <g class="pop" style="transition-delay:.15s"><polygon points="288,55 296,59 288,63" fill="#7b8694"/>
+          <line class="draw" style="--len:24" x1="274" y1="59" x2="296" y2="59" stroke="#7b8694" stroke-width="1.8"/></g>
+        <g class="pop" style="transition-delay:.25s"><rect x="298" y="0" width="272" height="118" rx="13" fill="#e9f7f1" stroke="#a9dcc6"/>
+          <text x="318" y="30" font-size="13" font-weight="700" fill="#0b8a5b" font-family="ui-monospace,monospace">服务单元 · 任务级</text>
+          <text x="318" y="56" font-size="12" fill="#48515d">read_events 按定位符读任务原文</text>
+          <text x="318" y="78" font-size="12" fill="#48515d">resume_task 重建状态+未闭合项</text>
+          <text x="318" y="100" font-size="12" fill="#2d7a5c">扩展依据=任务归属，不是时间邻接</text></g>
+        <g class="pop" style="transition-delay:.35s"><polygon points="586,55 594,59 586,63" fill="#7b8694"/>
+          <line class="draw" style="--len:24" x1="572" y1="59" x2="596" y2="59" stroke="#7b8694" stroke-width="1.8"/></g>
+        <g class="pop" style="transition-delay:.45s"><rect x="598" y="0" width="262" height="118" rx="13" fill="#fff" stroke="#e4e2dd"/>
+          <text x="618" y="30" font-size="13" font-weight="700" fill="#11151a" font-family="ui-monospace,monospace">心智模型 · agent 自建</text>
+          <text x="618" y="56" font-size="12" fill="#48515d">拼原文 + 读代码 + 跑测试</text>
+          <text x="618" y="78" font-size="12" fill="#48515d">系统永不替模型建模型</text>
+          <text x="618" y="100" font-size="12" fill="#bb2d2d">摘要只导航，不替代</text></g>
+        <g class="pop" style="transition-delay:.6s">
+          <text x="430" y="164" text-anchor="middle" font-size="14" fill="#11151a" font-weight="600">turn 级做发现通道（找哪个任务相关），task 级做服务单元（给完整上下文）</text>
+          <text x="430" y="192" text-anchor="middle" font-size="12.5" fill="#7b8694">避开了 MemOps 实测的「turn 级切碎证据链」的坑；任务是意图边界，邻接只是巧合</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="note ok rv d3">
+      <span class="nt"><code>resume_task</code> 不能退化成 search 的一种用法</span>
+      状态重建要的是<strong>完整性和未闭合项</strong>，不是相关性——用 top-k 恢复状态，会恢复出一个有洞的心智模型，而 agent 不知道有洞。
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第四幕 · 读路径" data-title="任务起点建模与验证门">
+  <div class="inner">
+    <div class="kick rv">第四幕 &#183;&nbsp; 读路径</div>
+    <h2 class="rv d1">起点建模，收口在验证门</h2>
+    <div class="two" style="margin-top:8px">
+      <div class="card rv d2">
+        <h4>任务起点（有预算的 K 轮）</h4>
+        <ol class="steps" style="margin:10px 0 0">
+          <li><b>并行广撒 3–5 个查询</b>list_tasks + symbol_history + search_history</li>
+          <li><b>按结果收窄</b>read_events / read_blob 补全</li>
+          <li><b>批量证伪</b>把断言拿去撞世界</li>
+          <li><b>进执行循环</b>midtask 继续可查，finish_warmup 可早停</li>
+        </ol>
+      </div>
+      <div class="card ok rv d3">
+        <h4 style="color:var(--mem)">验证门：收口必须撞世界</h4>
+        <p style="margin:0;font-size:15px">建模完成时，把心智模型里<strong>所有可被世界证伪的断言</strong>批量验证一次。日志说"认证走 JWT，在 auth/middleware.py" → grep 验。<mark>失败说明日志相对代码已过期</mark>，报给 agent，而不是让它带着错误前提开工。</p>
+        <p style="margin:10px 0 0;font-size:15px">零 LLM、一次性、可并行。coding 场景白送的外部验证器。</p>
+      </div>
+    </div>
+    <div class="note rv d4">
+      <span class="nt">一个要防的过读倾向</span>
+      agent 很容易过度阅读：K 和读取预算都要可配，停止条件要显式告知——<strong>你建的心智模型是为了回答什么</strong>。主动检索的额外开销在评估里单列，不摊进总数。
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第四幕 · 读路径" data-title="裁剪：成功给结果，失败给全过程">
+  <div class="inner">
+    <div class="kick rv">第四幕 &#183;&nbsp; 读路径 &#183; 机械规则</div>
+    <h2 class="rv d1">成功给结果，失败给全过程</h2>
+    <div class="two" style="margin-top:8px">
+      <div class="card rv d2">
+        <h4>不对称裁剪（零 LLM）</h4>
+        <p style="margin:0;font-size:15px"><strong>成功路径的过程在代码里</strong>——代码就是它的产物，要细节读代码。<strong>失败路径在世界上不留痕迹，只有日志有</strong>——那才是日志不可替代的部分。所以成功的过程裁掉，失败的过程全留。</p>
+      </div>
+      <div class="card rv d3">
+        <h4>被取代的默认照样返回，强制带 <code>currentValidity</code></h4>
+        <p style="margin:0;font-size:15px">被取代的那段恰是"当初为什么、后来为什么推翻"的所在。<mark>要防的不是看见旧结论，是把旧结论当现状</mark>——用标注解决，不用隐藏解决。显式 <code>only_current=true</code> 才排除，且返回 <code>filteredOut</code> 条数让调用方知道自己看的不是全部。</p>
+      </div>
+    </div>
+    <div class="note bad rv d4">
+      <span class="nt">这条推翻了初版主张</span>
+      初版写"被取代内容默认不出现在首次返回"——那等于把最该读的一段删了。依据：2607.08716 报 full-bank 全量暴露差 2.8 点，支持"要裁剪"，不支持"按有效性隐藏"。<strong>裁的是量，不是真值状态。</strong>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第四幕 · 读路径" data-title="推拉：线索式注入（讨论中）">
+  <div class="inner">
+    <div class="kick rv">第四幕 &#183;&nbsp; 读路径 &#183; 演进中</div>
+    <h2 class="rv d1">纯拉的实测暴露了一个洞：<br>模型不知道存在的东西不会去搜</h2>
+    <p class="lede rv d2">首跑 C 臂 20 次记忆查询<strong>全部挤在 warmup，midtask 零查询</strong>——不是没东西可查，是执行中没有通道告诉它"你刚碰的文件有历史"。</p>
+    <div class="mapRow rv d3">
+      <div class="g"><div class="lbl">纯拉（现状）</div><div class="nm">模型自己想到才查</div>
+        <div class="ds">第一轮只能盲探：实测 list_tasks 连续两次返回空——对库里有什么完全没有地图。</div></div>
+      <div class="mid">&rarr;</div>
+      <div class="m"><div class="lbl">线索式推（修订方向）</div><div class="nm">系统推高价值原文碎片</div>
+        <div class="ds">工具结果回来后机械提取锚点（路径/符号/错误串）&rarr; 倒排命中 &rarr; 注入命中那段<b>原文切片</b>。</div></div>
+    </div>
+    <div class="frag rv d4">
+      <span class="fh">[碎片 | task_58 &#183; ev_1234 | 2026-08-03 | <tspan class="fe">outcome:error</tspan> | <tspan class="fv">已被取代</tspan>]</span>
+      "试了 inline barrier，audit_chain 在超时边界漏掉未就绪探针 —— 因为 fence 在 timeout 分支没先排空队列"
+    </div>
+    <p class="rv d5" style="font-size:15.5px">
+      碎片是<strong>调查起点不是背景知识</strong>：价值在携带可追的钩（ev_id、task_id、原话、"因为 Y"）。
+      排序零语义（error &gt; 被取代决策 &gt; 用户纠正）、必带解毒头、限量去重、标注未裁决。
+      <mark>推存在性线索，拉完整证据——agent 顺着钩自己拼出心智模型。</mark>
+    </p>
+    <div class="note amb rv d6">
+      <span class="nt">与被否决的 Dynamics recall.py 的区别</span>
+      那个每轮注入的是给模型<em>消化</em>的语义块；这个注入的是给模型<em>追查</em>的原始证物。越过"机械匹配/只切不评/必带头"三条线就退化回去。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 第五幕 ============ -->
+<section class="slide" data-act="第五幕 · 评估" data-title="三臂对照">
+  <div class="inner">
+    <div class="kick rv">第五幕 &#183;&nbsp; 评估</div>
+    <h2 class="rv d1">记忆有没有用，不许自己说了算</h2>
+    <p class="lede rv d2">同一前沿模型、同一仓库起始快照、同一组 coding 工具，只差上下文来源。</p>
+    <div class="tw rv d3">
+      <table>
+        <tr><th>臂</th><th>上下文来源</th><th>角色</th></tr>
+        <tr><td><b>A 冷启动</b></td><td>只有当前任务描述 + 仓库</td><td>下界参照——它不是"基线"，只是地板</td></tr>
+        <tr><td><b>B 长上下文</b></td><td>历史装得下就完整给；装不下机械降级成 B′</td><td>不许拿人为残废的 B 去赢</td></tr>
+        <tr><td><b>C tasklog</b></td><td>七个工具主动展开（K 轮预热 + midtask 续查）</td><td>被测对象</td></tr>
+      </table>
+    </div>
+    <div class="two" style="margin-top:14px">
+      <div class="card rv d4">
+        <h4>判胜看任务，不看问答分</h4>
+        <p style="margin:0;font-size:15px">实际完成（独立验收逐条核对）&gt; 返工次数 &gt; 重复失败 &gt; 过期假设。token/费用/耗时<strong>成本单列，不许合并成综合分</strong>。</p>
+      </div>
+      <div class="card bad rv d5">
+        <h4 style="color:var(--warn)">防泄漏做不到，整组作废</h4>
+        <p style="margin:0;font-size:15px">严格按时间切分：第 N 个任务只见之前的历史。还有第 5 类"历史无关任务"故意保留——<strong>只测对自己有利的局，等于只找自己赢的局</strong>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-act="第五幕 · 评估" data-title="首个真实三臂结果">
+  <div class="inner">
+    <div class="kick rv">第五幕 &#183;&nbsp; 评估 &#183; 首跑结果</div>
+    <h2 class="rv d1">第一组真实数字：记忆没赢</h2>
+    <p class="lede rv d2"><code>swe-2-max</code>（逐请求核验身份）&#183; 因果探针任务 &#183; n=1 单任务，不能外推。</p>
+    <div class="tw rv d3">
+      <table>
+        <tr><th>臂</th><th>结局</th><th>请求</th><th>input tok</th><th>时序检查</th><th>超时边界</th><th>原生尝试</th></tr>
+        <tr><td><b>A 冷启</b></td><td>checks_failed</td><td>12</td><td>1.13M</td><td style="color:var(--mem)">✔</td><td style="color:var(--warn)">✘</td><td>8（全拒）</td></tr>
+        <tr><td><b>B′ 长上下文</b><br><span style="font-size:12px;color:var(--ink3)">est 9.5M→49K，丢 18,620 事件</span></td><td>checks_failed</td><td>13</td><td>2.14M</td><td style="color:var(--warn)">✘</td><td style="color:var(--warn)">✘</td><td>20（全拒）</td></tr>
+        <tr><td><b>C 记忆</b><br><span style="font-size:12px;color:var(--ink3)">20 次真实记忆查询·5 种工具</span></td><td>checks_failed</td><td>18</td><td>2.69M</td><td style="color:var(--mem)">✔</td><td style="color:var(--warn)">✘</td><td>31（全拒）</td></tr>
+      </table>
+    </div>
+    <div class="two" style="margin-top:14px">
+      <div class="card amb rv d4">
+        <h4 style="color:var(--amber)">如实读法</h4>
+        <p style="margin:0;font-size:15px">C 与 A 检查结局相同，但多花 ~1.4× input、+50% 请求——<strong>检索开销没有换成正确率</strong>。B′ 连时序检查都没过：压到 49K 的历史基座反而比冷启差。三臂全卡 <code>barrier_timeout</code> 语义——可能是任务本身难点。</p>
+      </div>
+      <div class="card bad rv d5">
+        <h4 style="color:var(--warn)">污染事件（重要）</h4>
+        <p style="margin:0;font-size:15px">deny 生效前的一次 B 跑过检查时，<strong>确认用原生工具读了真实仓库</strong>（HEAD 含未来解）——它的 ✔ 是污染产物。评测 harness 本身是有效性边界的一部分。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 第六幕 ============ -->
+<section class="slide" data-act="第六幕 · 边界" data-title="已知缺口">
+  <div class="inner">
+    <div class="kick rv">第六幕 &#183;&nbsp; 边界</div>
+    <h2 class="rv d1">诚实清单：现在哪里还漏</h2>
+    <div class="two" style="margin-top:8px">
+      <div class="card rv d2">
+        <h4>机制缺口</h4>
+        <ul class="clean" style="font-size:15px;margin-bottom:0">
+          <li><b>向量通道未接入</b>——三条互补通道定位写死了，最大未实现项；"倒排+FTS 不够"仍是 <code>[假设]</code></li>
+          <li><b>outcome 维度缺失</b>——数据有（343 个 error 事件），<code>search_history</code> 没有 outcome 过滤</li>
+          <li><b>跨任务惯例无索引</b>——"本 repo 一律先 lint"不在任何单任务里，需确定性计数索引</li>
+        </ul>
+      </div>
+      <div class="card rv d3">
+        <h4>证据缺口</h4>
+        <ul class="clean" style="font-size:15px;margin-bottom:0">
+          <li><b>n=1 单任务</b>——不能外推"记忆无用"，只能说明此探针切片上没收益</li>
+          <li><b>B′ 是偏弱对手</b>——99%+ 事件被丢，长上下文真实实力没测到</li>
+          <li><b>任务边界未审计</b>——68 个推断任务，边界质量没有专项评估</li>
+        </ul>
+      </div>
+    </div>
+    <div class="two" style="margin-top:4px">
+      <div class="card git rv d4">
+        <h4 style="color:var(--git)">演进中：线索式推</h4>
+        <p style="margin:0;font-size:15px">推碎片 + 拉原文的混合通道已定向，未实现——对照变量现成：C（纯拉） vs C′（推+拉），看 warmup 轮数 / midtask 查询 / 总 input / 检查结局。</p>
+      </div>
+      <div class="card amb rv d5">
+        <h4 style="color:var(--amber)">未解矛盾</h4>
+        <p style="margin:0;font-size:15px">"心智模型 pin 缓存"若跨会话存续，压上"不允许任何形式持久化摘要"红线——除非明确定性为<strong>可重建缓存而非记忆</strong>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 尾声 ============ -->
+<section class="slide dark" data-act="尾声" data-title="记忆的职责">
+  <div class="inner">
+    <div class="kick rv">尾声</div>
+    <p class="endline rv d1">
+      记忆的职责不是替 LLM 记住答案，<br>
+      是让 LLM 随时能回到证据。<br><br>
+      <span style="color:#8995a6;font-size:.72em">
+        写入零加工，所以没什么可错的；<br>
+        索引可重建，所以错了也赔得起；<br>
+        原文永远在，所以每句话都能被追着对。
+      </span>
+    </p>
+    <div class="heroMeta rv d3" style="margin-top:36px">
+      <div class="hm"><s>DESIGN</s>design/agent-memory-design.md</div>
+      <div class="hm"><s>CODE</s>mvp-2/tasklog</div>
+      <div class="hm"><s>EVAL</s>.tasklog/devin-pilot-01-{AB,B,C}</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- chrome -->
+<div id="chrome">
+  <div class="actlbl"><span class="a" id="actA"></span><span class="t" id="actT"></span><span class="ctr" id="ctr"></span></div>
+  <div class="botbar">
+    <div class="navbtn" id="prev">&#8592;</div>
+    <div class="dots" id="dots"></div>
+    <div class="hint">&#8592;&#8594; 翻页 &#183; O 目录 &#183; F 全屏</div>
+    <div class="navbtn" id="next">&#8594;</div>
+  </div>
+</div>
+<div class="zone l" id="zl"></div>
+<div class="zone r" id="zr"></div>
+<div id="ov"><div id="ovBody"></div></div>
+
+<script>
+(function(){
+  var slides = [].slice.call(document.querySelectorAll('.slide'));
+  function unfit(inn){ inn.style.zoom=''; inn.style.padding=''; inn.style.maxHeight=''; }
+  function fit(s){
+    var inn = s.querySelector('.inner');
+    unfit(inn);
+    var cs = getComputedStyle(inn);
+    var pt = parseFloat(cs.paddingTop),  pb = parseFloat(cs.paddingBottom),
+        pl = parseFloat(cs.paddingLeft), pr = parseFloat(cs.paddingRight);
+    var avail = s.clientHeight;
+    if (!avail) return;
+    var k = 1;
+    for (var pass = 0; pass < 4; pass++) {
+      inn.style.maxHeight = 'none';
+      var R = inn.offsetHeight * k;
+      if (R <= avail - 2) break;
+      k = Math.max(0.5, k * (avail - pt - pb - 4) / (R - pt - pb));
+      inn.style.zoom = String(k);
+      inn.style.padding = (pt/k)+'px '+(pr/k)+'px '+(pb/k)+'px '+(pl/k)+'px';
+    }
+    inn.style.maxHeight = k < 1 ? (avail/k)+'px' : '';
+  }
+  var N = slides.length, cur = -1;
+  var chrome = document.getElementById('chrome');
+  var dots = document.getElementById('dots');
+  var ov = document.getElementById('ov');
+
+  var lastAct = null;
+  slides.forEach(function(s, i){
+    var act = s.dataset.act;
+    if (lastAct !== null && act !== lastAct) {
+      var g = document.createElement('span'); g.className = 'gap'; dots.appendChild(g);
+    }
+    lastAct = act;
+    var d = document.createElement('i');
+    d.title = (i+1) + '. ' + s.dataset.title;
+    d.onclick = function(){ go(i); };
+    dots.appendChild(d);
+  });
+  var dotEls = [].slice.call(dots.querySelectorAll('i'));
+
+  (function buildOv(){
+    var h = '<h3>目录 &#183; ' + N + ' 页</h3>', acts = [], map = {};
+    slides.forEach(function(s,i){
+      if (!map[s.dataset.act]) { map[s.dataset.act] = []; acts.push(s.dataset.act); }
+      map[s.dataset.act].push(i);
+    });
+    acts.forEach(function(a){
+      h += '<div class="ovact"><b>' + a + '</b><div class="ovlist">';
+      map[a].forEach(function(i){
+        h += '<a href="#' + (i+1) + '" data-i="' + i + '"><span class="n">' +
+             String(i+1).padStart(2,'0') + '</span><span class="s">' +
+             slides[i].dataset.title + '</span></a>';
+      });
+      h += '</div></div>';
+    });
+    document.getElementById('ovBody').innerHTML = h;
+    ov.addEventListener('click', function(e){
+      var a = e.target.closest('a[data-i]');
+      if (a) { e.preventDefault(); go(+a.dataset.i); toggleOv(false); }
+      else if (e.target === ov) toggleOv(false);
+    });
+  })();
+  function toggleOv(on){
+    if (on === undefined) on = !ov.classList.contains('show');
+    ov.classList.toggle('show', on);
+    if (on) {
+      [].forEach.call(ov.querySelectorAll('a[data-i]'), function(a){
+        a.classList.toggle('cur', +a.dataset.i === cur);
+      });
+    }
+  }
+
+  function go(i, instant){
+    i = Math.max(0, Math.min(N-1, i));
+    if (i === cur) return;
+    var old = cur; cur = i;
+    slides.forEach(function(s, k){
+      s.classList.toggle('active', k === i);
+      s.classList.toggle('left', k < i);
+      if (k !== i) [].forEach.call(s.querySelectorAll('.rv, .pop'), function(e){ e.classList.remove('go'); });
+    });
+    var s = slides[i];
+    fit(s);
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){
+      [].forEach.call(s.querySelectorAll('.rv, .pop'), function(e){ e.classList.add('go'); });
+    });});
+    s.querySelector('.inner').scrollTop = 0;
+    document.getElementById('actA').textContent = s.dataset.act;
+    document.getElementById('actT').textContent = s.dataset.title;
+    document.getElementById('ctr').textContent = (i+1) + ' / ' + N;
+    chrome.classList.toggle('on-dark', s.classList.contains('dark'));
+    dotEls.forEach(function(d, k){ d.classList.toggle('on', k === i); });
+    document.getElementById('prev').disabled = (i === 0);
+    document.getElementById('next').disabled = (i === N-1);
+    if (history.replaceState) history.replaceState(null, '', '#' + (i+1));
+  }
+
+  document.getElementById('prev').onclick = function(){ go(cur-1); };
+  document.getElementById('next').onclick = function(){ go(cur+1); };
+  document.getElementById('zl').onclick = function(){ go(cur-1); };
+  document.getElementById('zr').onclick = function(){ go(cur+1); };
+
+  document.addEventListener('keydown', function(e){
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (ov.classList.contains('show') && (k === 'Escape' || k === 'o' || k === 'O')) { toggleOv(false); return; }
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') { e.preventDefault(); go(cur+1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace') { e.preventDefault(); go(cur-1); }
+    else if (k === 'Home') { e.preventDefault(); go(0); }
+    else if (k === 'End') { e.preventDefault(); go(N-1); }
+    else if (k === 'o' || k === 'O' || k === 'Escape') { e.preventDefault(); toggleOv(); }
+    else if (k === 'f' || k === 'F') {
+      e.preventDefault();
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+    }
+  });
+
+  var wheelLock = 0;
+  document.addEventListener('wheel', function(e){
+    if (ov.classList.contains('show')) return;
+    var inner = slides[cur].querySelector('.inner');
+    var canScroll = inner.scrollHeight > inner.clientHeight + 2;
+    if (canScroll) {
+      var atTop = inner.scrollTop <= 0, atBot = inner.scrollTop + inner.clientHeight >= inner.scrollHeight - 2;
+      if ((e.deltaY > 0 && !atBot) || (e.deltaY < 0 && !atTop)) return;
+    }
+    var now = Date.now();
+    if (now - wheelLock < 700) return;
+    if (Math.abs(e.deltaY) < 18) return;
+    wheelLock = now;
+    go(cur + (e.deltaY > 0 ? 1 : -1));
+  }, { passive: true });
+
+  var tx = 0, ty = 0;
+  document.addEventListener('touchstart', function(e){
+    tx = e.changedTouches[0].clientX; ty = e.changedTouches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e){
+    var dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) go(cur + (dx < 0 ? 1 : -1));
+  }, { passive: true });
+
+  var rt = 0;
+  window.addEventListener('resize', function(){
+    clearTimeout(rt); rt = setTimeout(function(){ fit(slides[cur]); }, 120);
+  });
+  document.addEventListener('fullscreenchange', function(){
+    setTimeout(function(){ fit(slides[cur]); }, 80);
+  });
+  window.addEventListener('beforeprint', function(){
+    slides.forEach(function(s){ unfit(s.querySelector('.inner')); });
+  });
+  window.addEventListener('afterprint', function(){ fit(slides[cur]); });
+
+  var start = parseInt((location.hash || '').slice(1), 10);
+  go(isFinite(start) && start >= 1 && start <= N ? start - 1 : 0);
+  window.addEventListener('load', function(){ fit(slides[cur]); });
+})();
+</script>
+</body>
+</html>

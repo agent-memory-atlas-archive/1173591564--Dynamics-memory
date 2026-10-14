@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PR #1538 完整评估 — 官方基线对比 · 变更账本 · 审阅机制</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-elevated: #121820;
+    --bg-chrome: #171f29;
+    --bg-soft: #0f141b;
+    --border: #26313d;
+    --border-strong: #3a4654;
+    --text: #e8eef5;
+    --text-2: #aeb9c6;
+    --text-3: #778697;
+    --accent: #5aa2ff;
+    --accent-dim: #2f5f9e;
+    --green: #55b96a;
+    --red: #e15a54;
+    --orange: #d59a2f;
+    --purple: #b58cff;
+    --cyan: #4fc3c8;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(90,162,255,0.10), transparent 34rem),
+      radial-gradient(circle at top right, rgba(181,140,255,0.08), transparent 30rem),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    padding: 44px 24px 64px;
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--bg-chrome);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #f0c36d;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 34px; font-weight: 750; letter-spacing: -0.7px; margin-bottom: 12px; }
+  h2 {
+    font-size: 22px; font-weight: 700; margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 16px; font-weight: 700; margin: 26px 0 10px; }
+  h4 { font-size: 14px; font-weight: 700; margin: 18px 0 8px; color: var(--text); }
+  p { color: var(--text-2); margin-bottom: 10px; }
+  ul { color: var(--text-2); padding-left: 22px; margin-bottom: 10px; }
+  li { margin-bottom: 5px; }
+  .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .badge {
+    font-size: 12.5px; color: var(--text-3);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px;
+    background: rgba(18,24,32,0.78);
+  }
+  .badge b { color: var(--text-2); font-weight: 650; }
+  .badge.hot { border-color: rgba(225,90,84,.5); color: #f0a29e; }
+  .badge.good { border-color: rgba(85,185,106,.5); color: #9bd7a7; }
+  .badge.warn { border-color: rgba(213,154,47,.55); color: #e7bd68; }
+  .badge.blue { border-color: rgba(90,162,255,.5); color: #9dc8ff; }
+  .kicker {
+    color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  section {
+    margin: 0 0 34px;
+    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(18,24,32,0.76);
+    box-shadow: 0 16px 50px rgba(0,0,0,0.18);
+  }
+  .callout {
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    padding: 15px 18px;
+    margin: 14px 0;
+  }
+  .callout .callout-title { font-weight: 700; font-size: 13.5px; color: var(--accent); margin-bottom: 5px; }
+  .callout.warn { border-left-color: var(--orange); }
+  .callout.warn .callout-title { color: var(--orange); }
+  .callout.good { border-left-color: var(--green); }
+  .callout.good .callout-title { color: var(--green); }
+  .callout.bad { border-left-color: var(--red); }
+  .callout.bad .callout-title { color: var(--red); }
+  .callout.purple { border-left-color: var(--purple); }
+  .callout.purple .callout-title { color: var(--purple); }
+  .callout p { margin: 0; font-size: 14px; }
+  .callout p + p { margin-top: 7px; }
+  .callout ul { margin: 4px 0 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 14px; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-3); font-weight: 650; font-size: 12.5px; }
+  td:first-child { font-weight: 650; }
+  tr:hover td { background: rgba(255,255,255,0.025); }
+  .small-table td, .small-table th { padding: 7px 9px; font-size: 13px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 8px; }
+  .dot.g { background: var(--green); } .dot.r { background: var(--red); }
+  .dot.o { background: var(--orange); } .dot.b { background: var(--accent); }
+  .dot.p { background: var(--purple); } .dot.c { background: var(--cyan); }
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 700;
+    border-radius: 999px; padding: 1px 8px; border: 1px solid var(--border);
+    color: var(--text-3); white-space: nowrap;
+  }
+  .pill.base { border-color: rgba(79,195,200,.55); color: #8fe0e3; }
+  .pill.review { border-color: rgba(213,154,47,.55); color: #e6bd67; }
+  .pill.ops { border-color: rgba(181,140,255,.55); color: #c9afff; }
+  .pill.miss { border-color: rgba(225,90,84,.55); color: #f1a29e; }
+  .pill.keep { border-color: rgba(85,185,106,.55); color: #9dd7a8; }
+
+  .flow { display: flex; gap: 8px; align-items: stretch; margin: 14px 0; flex-wrap: wrap; }
+  .node {
+    flex: 1; min-width: 140px;
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    background: var(--bg-soft); padding: 12px 14px;
+  }
+  .node.accent { border-color: var(--accent-dim); background: #111d2d; }
+  .node.good { border-color: rgba(85,185,106,.45); background: #102018; }
+  .node.bad { border-color: rgba(225,90,84,.45); background: #241514; }
+  .node .n-title { font-weight: 700; font-size: 13.5px; margin-bottom: 3px; }
+  .node .n-sub { font-size: 12px; color: var(--text-3); line-height: 1.55; }
+  .arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-3); font-size: 19px; min-width: 24px; }
+  .arrow small { font-size: 10px; color: var(--text-3); line-height: 1.2; text-align:center; }
+
+  .mono {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
+    background: #0d131a; border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; white-space: pre;
+    color: var(--text-2); overflow-x: auto; margin: 12px 0;
+  }
+  .mono .dim { color: var(--text-3); }
+  .mono .hl { color: #8fc6ff; }
+  .tok {
+    display: inline-block; font-family: var(--mono); font-size: 11px;
+    border: 1px solid var(--red); color: var(--red);
+    border-radius: 4px; padding: 0 6px; margin: 1px 2px;
+  }
+  .tok.g { border-color: var(--green); color: var(--green); }
+  .tok.b { border-color: var(--accent); color: var(--accent); }
+  .tok.p { border-color: var(--purple); color: var(--purple); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 16px 0; }
+  .stat {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--bg-soft); padding: 16px;
+  }
+  .stat .v { font-size: 27px; font-weight: 750; line-height: 1.2; }
+  .stat .v.g { color: var(--green); } .stat .v.b { color: var(--accent); }
+  .stat .v.o { color: var(--orange); } .stat .v.r { color: var(--red); }
+  .stat .v.p { color: var(--purple); }
+  .stat .l { font-size: 12px; color: var(--text-3); margin-top: 5px; line-height:1.5; }
+
+  .bars { margin: 18px 0 8px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .bar-label { width: 132px; font-size: 12.5px; color: var(--text-3); text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; height: 22px; background: var(--bg-chrome); border-radius: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; min-width: 2px; }
+  .bar-val { width: 118px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+
+  .grid2, .grid3, .grid4 { display: grid; gap: 12px; margin: 14px 0; }
+  .grid2 { grid-template-columns: repeat(2, 1fr); }
+  .grid3 { grid-template-columns: repeat(3, 1fr); }
+  .grid4 { grid-template-columns: repeat(4, 1fr); }
+  .mini {
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    background: var(--bg-soft); padding: 13px 15px;
+  }
+  .mini .m-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .mini .m-sub { font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+  .mini .m-sub b { color: var(--text-2); }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .compare .col {
+    border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden;
+    background: var(--bg-soft);
+  }
+  .compare .col .head {
+    padding: 11px 14px; font-weight: 700; font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .compare .col.before .head { color: #9fb7d9; background: #101821; }
+  .compare .col.after .head { color: #a5d8ff; background: #102033; }
+  .compare .col .body { padding: 13px 15px; }
+  .compare .col ul { margin: 0; padding-left: 19px; }
+  .compare .col li { font-size: 13.5px; }
+
+  .steps { display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+  .step {
+    flex: 1; min-width: 210px;
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    background: var(--bg-soft); padding: 14px 16px;
+  }
+  .step .s-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .step .s-num {
+    width: 23px; height: 23px; border-radius: 12px; background: var(--accent);
+    color: #fff; font-size: 12px; font-weight: 750;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .step .s-title { font-weight: 700; font-size: 13.5px; }
+  .step .s-body { font-size: 13px; color: var(--text-2); line-height: 1.65; }
+
+  .files td:first-child { font-family: var(--mono); font-weight: 400; font-size: 12.5px; color: #8fc6ff; white-space: normal; }
+  .note { font-size: 13px; color: var(--text-3); margin-top: 6px; }
+  .footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+  .toc {
+    display:flex; flex-wrap:wrap; gap:8px; margin: 16px 0 0;
+  }
+  .toc a {
+    border: 1px solid var(--border); border-radius:999px; padding:3px 10px;
+    color: var(--text-3); font-size:12px; background: rgba(18,24,32,.7);
+  }
+  .toc a:hover { color: var(--accent); border-color: var(--accent-dim); text-decoration:none; }
+  .verdict {
+    border: 1px solid rgba(90,162,255,.35);
+    border-radius: 16px; padding: 18px;
+    background: linear-gradient(135deg, rgba(90,162,255,.13), rgba(18,24,32,.8));
+    margin: 16px 0;
+  }
+  .verdict .v-title { font-size: 17px; font-weight: 750; margin-bottom: 8px; }
+  .verdict p { font-size: 14px; }
+  .signature { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .signature span { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+
+  /* ── 模块化布局：侧边导航 + 单模块展示 ── */
+  .layout { display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 22px; align-items: start; }
+  .sidebar {
+    position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 16px;
+    background: rgba(18,24,32,0.85); padding: 16px 10px;
+    scrollbar-width: thin;
+  }
+  .side-title { font-weight: 750; font-size: 13px; padding: 0 8px 4px; }
+  .side-sub {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-3);
+    padding: 0 8px 12px; margin-bottom: 10px; border-bottom: 1px solid var(--border);
+    line-height: 1.7;
+  }
+  .nav-item {
+    display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left;
+    border: none; background: transparent; color: var(--text-3);
+    font: 600 12.5px/1.45 inherit; font-family: inherit;
+    padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  }
+  .nav-item .idx { font-family: var(--mono); font-size: 10.5px; flex-shrink: 0; }
+  .nav-item:hover { color: var(--text-2); background: rgba(255,255,255,0.04); }
+  .nav-item.on { color: #cfe3ff; background: rgba(90,162,255,0.14); }
+  .nav-item.on .idx { color: var(--accent); }
+  .side-foot {
+    margin-top: 12px; padding: 10px 8px 0; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-3); line-height: 1.7;
+  }
+  .side-foot a { color: var(--text-3); display: block; padding: 1px 0; }
+  .side-foot a:hover { color: var(--accent); text-decoration: none; }
+
+  main > section { display: none; }
+  main > section.active { display: block; }
+
+  .pager { display: flex; gap: 8px; margin-top: 18px; align-items: center; }
+  .pager .sp { flex: 1; }
+  .pager button {
+    font: inherit; font-size: 12px; font-weight: 600; color: var(--text-3);
+    background: var(--bg-chrome); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  .pager button:hover { color: var(--accent); border-color: var(--accent-dim); }
+  .pager .pos { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; gap: 14px; }
+    .sidebar {
+      position: sticky; top: 0; z-index: 20; max-height: none;
+      padding: 8px; border-radius: 12px; overflow: hidden;
+    }
+    .side-title, .side-sub, .side-foot { display: none; }
+    #toc { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+    .nav-item { flex-shrink: 0; white-space: nowrap; padding: 6px 10px; }
+    .stats, .grid4 { grid-template-columns: 1fr 1fr; }
+    .grid3, .grid2, .compare { grid-template-columns: 1fr; }
+    .steps, .flow { flex-direction: column; }
+    .arrow { font-size: 0; min-height: 26px; flex-direction: row; justify-content: center; gap: 6px; }
+    .arrow::before { content: "↓"; font-size: 19px; color: var(--text-3); line-height: 1; }
+    .arrow small { font-size: 10px; line-height: 1.3; }
+    section { padding: 18px; }
+    .bar-label { width: 105px; }
+    .bar-val { width: 95px; }
+  }
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    .layout { display: block; }
+    .sidebar, .pager { display: none; }
+    main > section { display: block !important; }
+    section { box-shadow:none; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="side-title">PR #1538 评估报告</div>
+    <div class="side-sub">feat/server_team @ 8b86874<br>bd88cc8 → 81e48e8<br>61 files · +12,163 / −1,222</div>
+    <nav id="toc">
+      <button class="nav-item" data-t="baseline"><span class="idx">01</span>基线对比</button>
+      <button class="nav-item" data-t="infra"><span class="idx">02</span>基础设施改造</button>
+      <button class="nav-item" data-t="interfaces"><span class="idx">03</span>接口清单</button>
+      <button class="nav-item" data-t="scale"><span class="idx">04</span>规模拆分</button>
+      <button class="nav-item" data-t="correctness"><span class="idx">05</span>正确性机制</button>
+      <button class="nav-item" data-t="gaps"><span class="idx">06</span>未闭合缺口</button>
+      <button class="nav-item" data-t="redesign"><span class="idx">07</span>重设计含义</button>
+      <button class="nav-item" data-t="verification"><span class="idx">08</span>验证与风险</button>
+      <button class="nav-item" data-t="files"><span class="idx">09</span>关键文件地图</button>
+    </nav>
+    <div class="side-foot">
+      <a href="https://github.com/TencentCloud/TencentDB-Agent-Memory/pull/1538">PR #1538 ↗</a>
+      <a href="https://github.com/TencentCloud/TencentDB-Agent-Memory/issues/1615">issue #1615 ↗</a>
+      <a href="#" id="to-top">回到概览 ↑</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <header>
+    <div class="kicker">Technical Assessment Report</div>
+    <h1>PR #1538 完整评估报告</h1>
+    <p style="font-size:16px; max-width:850px;">
+      以官方最新基线为参照，评估 <b>Unified change-ledger / after-the-fact review</b>：
+      它到底改造了哪些基础设施、建设了哪些接口、哪些值得保留、哪些没有闭合。
+    </p>
+    <div class="meta">
+      <span class="badge blue">当前基线 <b>feat/server_team @ 8b86874</b></span>
+      <span class="badge">PR base <b>bd88cc8</b></span>
+      <span class="badge">PR head <b>81e48e8</b></span>
+      <span class="badge warn">状态 <b>OPEN</b></span>
+      <span class="badge"><a href="https://github.com/TencentCloud/TencentDB-Agent-Memory/pull/1538">PR #1538</a></span>
+      <span class="badge good">61 文件 · <b>+12,163 / −1,222</b></span>
+      <span class="badge hot">使用溯源 <b>未闭合</b></span>
+    </div>
+    <div class="verdict">
+      <div class="v-title">结论先行</div>
+      <p><b>PR #1538 不是“完整记忆追溯系统”，而是一个三层组合：</b>
+        权威变更账本与事务提交（基座候选）+ 审阅/回退动作面（策略层）+ JSONL outbox / 回放 / 擦除（运维层）。</p>
+      <p>如果只保留核心变更基座，估算约为 <b>3,200～4,300 行 diff</b>；
+      整个 PR 是 <b>13,385 行 diff</b>。其中<b>使用溯源链仍没有闭合</b>：
+      召回侧丢失 <code>record_id</code>，L1 generation-log 仍只记录 L0 输入。</p>
+      <div class="signature">
+        <span>report generated: 2026-10-08</span>
+        <span>scope: official baseline vs PR #1538</span>
+        <span>not a merge acceptance</span>
+      </div>
+    </div>
+  </header>
+
+  <section id="baseline" class="active">
+    <h2>1. 官方基线 vs PR #1538</h2>
+    <div class="grid4">
+      <div class="mini"><div class="m-title">PR 标题</div><div class="m-sub">Unified change-ledger and after-the-fact review</div></div>
+      <div class="mini"><div class="m-title">对比范围</div><div class="m-sub">base <code>bd88cc8</code> → head <code>81e48e8</code>；当前官方分支已到 <code>8b86874</code></div></div>
+      <div class="mini"><div class="m-title">关系</div><div class="m-sub">PR body 标记 supersedes <code>#1354 #1356 #1494 #1495 #1508</code></div></div>
+      <div class="mini"><div class="m-title">关联问题</div><div class="m-sub">issue <code>#1615</code>：撤回错误记忆后的传播污染闭环；PR 未闭合该问题</div></div>
+    </div>
+    <div class="compare">
+      <div class="col before">
+        <div class="head">官方基线 feat/server_team @ 8b86874</div>
+        <div class="body">
+          <ul>
+            <li>有 L0 / L1 / L2 / L3 数据面接口，但每层都可被直接写入。</li>
+            <li>已有 <code>memory-generation-log</code> 基础设施；L1 只记录 L0 input_refs，L2/L3 有上游 refs。</li>
+            <li>正文库、审计、生成日志是分离数据；没有统一 <code>memory_events</code> 权威账本。</li>
+            <li>管理面 delete / update / scenario / core write 只操作目标层，没有不可变变更事件。</li>
+            <li>没有 retract / restore / revert / visibility 的审阅语义。</li>
+            <li>JSONL 在服务模式中承担备份/恢复职责；没有 post-commit outbox 语义。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col after">
+        <div class="head">PR #1538 head @ 81e48e8</div>
+        <div class="body">
+          <ul>
+            <li>新增统一 <code>memory_events</code>：extraction / api_mutation / review / retention 事件。</li>
+            <li>SQLite 与事务型 MongoDB 可把“正文 + 替换删除 + 事件”放同一事务。</li>
+            <li>新增 review status 解析、血缘传播、clear epoch 栅栏、L2/L3 derived fence。</li>
+            <li>管理面写入口镜像到 ledger；L1 update/delete 尽量随正文原子提交。</li>
+            <li>新增 JSONL outbox、writer shard、backfill、redaction、ledger health。</li>
+            <li>新增 diff / history / review / ledger HTTP 面与 TypeScript SDK 审阅方法。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <h3>基线已有的东西，不应记到 PR 名下</h3>
+    <table class="small-table">
+      <tr><th>能力</th><th>基线状态</th><th>PR 变化</th></tr>
+      <tr>
+        <td><span class="pill base">生成日志</span> memory-generation-log</td>
+        <td>已存在；记录 layer/input/output/model/latency</td>
+        <td>PR 只接入或补充后端能力，并未建立该设施</td>
+      </tr>
+      <tr>
+        <td><span class="pill base">L2/L3 upstream refs</span></td>
+        <td>L2 记 <code>{layer:"l1"}</code>；L3 记 <code>{layer:"l2"}</code></td>
+        <td>PR 未新增这层语义</td>
+      </tr>
+      <tr>
+        <td><span class="pill base">管理面直接写各层</span></td>
+        <td>/atomic/*、/scenario/*、/core/* 已存在</td>
+        <td>PR 让这些入口镜像/提交 memory_events</td>
+      </tr>
+      <tr>
+        <td><span class="pill base">skill / offload 平行管线</span></td>
+        <td>skill 从消息直接抽取；offload L4 生成并注入 skill</td>
+        <td>PR 未把这些通道纳入追溯图</td>
+      </tr>
+    </table>
+
+    <div class="callout purple">
+      <div class="callout-title">最重要的基线事实</div>
+      <p>官方系统不是干净的线性管道 <code>L0 → L1 → L2 → L3</code>。
+      每一层都有直写 API，skill/offload 还会绕过 L1 从消息直接产生可注入内容。
+      因此“只把 L0→L1 设计对”只能解决追溯问题的一部分。</p>
+    </div>
+  </section>
+
+  <section id="infra">
+    <h2>2. 基础设施到底改造了什么</h2>
+
+    <h3>2.1 统一变更事件模型 <code>MemoryEvent</code></h3>
+    <p>PR 将“当前状态”扩展为“当前状态 + 不可变变更事实”。事件模型位于
+    <code>MemoryCore/src/core/store/types.ts:634-693</code>：</p>
+    <table class="small-table">
+      <tr><th>字段组</th><th>字段</th><th>含义</th></tr>
+      <tr><td>身份与时间</td><td><code>event_id</code> / <code>event_ts</code></td><td>稳定事件身份；规范毫秒 ISO 时间</td></tr>
+      <tr><td>目标记录</td><td><code>record_id</code> / <code>version</code> / <code>content</code></td><td>变更作用对象与当时内容</td></tr>
+      <tr><td>操作</td><td><code>op</code></td><td><code>created / updated / merged / superseded / reverted / deleted / retracted / restored</code></td></tr>
+      <tr><td>来源</td><td><code>source</code></td><td><code>extraction / api_mutation / review / retention</code></td></tr>
+      <tr><td>层级</td><td><code>layer</code></td><td><code>l1 / l2 / l3</code></td></tr>
+      <tr><td>替换关系</td><td><code>supersedes</code> / <code>superseded_by</code> / <code>snapshot_json</code></td><td>后继关系与被替换旧记录快照</td></tr>
+      <tr><td>审阅事实</td><td><code>review</code></td><td>protocol 2 / operation_id / request_hash / observed / sources</td></tr>
+      <tr><td>撤销定位</td><td><code>target_event_id</code></td><td>revert 指向的具体写入事件</td></tr>
+    </table>
+
+    <h3>2.2 Store 层新增能力契约</h3>
+    <table>
+      <tr><th>接口</th><th>职责</th><th>分类</th></tr>
+      <tr><td><code>appendMemoryEvent</code></td><td>向权威账本追加事件</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td><code>commitMemoryEvent</code></td><td>提交不可变收据；同身份返回原结果</td><td><span class="pill keep">基座 + 审阅</span></td></tr>
+      <tr><td><code>executeMemoryTransaction</code></td><td>执行正文与事件同事务提交</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td><code>getClearEpoch</code></td><td>读取当前 clear 代次</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td><code>commitClearFence</code></td><td>事务内提交 clear 栅栏事件</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td><code>queryMemoryEvents</code></td><td>按 record/session/op/source/layer/time 查询历史</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td><code>redactMemoryEvents</code></td><td>擦除事件明文，保留元数据骨架</td><td><span class="pill ops">运维</span></td></tr>
+      <tr><td><code>setL1ReviewStatus</code></td><td>提交 retract/restore 审核事件</td><td><span class="pill review">审阅</span></td></tr>
+    </table>
+    <p class="note">契约见 <code>MemoryCore/src/core/store/types.ts:929-940</code>。
+    “可选能力”是关键：不支持的后端应显式拒绝，而不是静默降级。</p>
+
+    <h3>2.3 L1 写入路径：正文与账本同一事务</h3>
+    <div class="flow">
+      <div class="node"><div class="n-title">L0 消息</div><div class="n-sub">对话原文</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="n-title">LLM 抽取 + dedup</div><div class="n-sub">embedding 在事务前完成</div></div>
+      <div class="arrow">→<small>同一事务</small></div>
+      <div class="node accent"><div class="n-title">事务提交</div><div class="n-sub">读目标行 + upsert + delete + append events</div></div>
+      <div class="arrow">→<small>提交后</small></div>
+      <div class="node"><div class="n-title">镜像</div><div class="n-sub">记录 JSONL + events outbox</div></div>
+    </div>
+    <ul>
+      <li>没有权威 store / ledger 时，写入被拒绝；不再允许 JSONL-only 模式。</li>
+      <li>dedup 目标被隔离或已退役时，拒绝盲目写新记录。</li>
+      <li>写入携带 <code>review_sources</code>、<code>review_guard_at</code>、<code>review_epoch</code>。</li>
+      <li>JSONL / outbox 失败不撤销权威提交，只记降级。</li>
+    </ul>
+    <p class="note">实现见 PR 内 <code>MemoryCore/src/core/record/l1-writer.ts:193-265</code>。</p>
+
+    <h3>2.4 管理面写入口被改造成 mutation 事件</h3>
+    <table>
+      <tr><th>入口</th><th>写入层</th><th>PR 行为</th></tr>
+      <tr><td><code>/conversation/add</code></td><td>L0</td><td>新增幂等处理；不属于 memory_events 核心链</td></tr>
+      <tr><td><code>/atomic/update</code></td><td>L1</td><td>事务提交正文 + mutation 事件</td></tr>
+      <tr><td><code>/atomic/delete</code></td><td>L1</td><td>批量删除与事件原子化；同时写 audit</td></tr>
+      <tr><td><code>/scenario/write · /scenario/rm</code></td><td>L2</td><td>操作事实镜像到 ledger，best-effort</td></tr>
+      <tr><td><code>/core/write</code></td><td>L3</td><td>操作事实镜像到 ledger，best-effort</td></tr>
+      <tr><td><code>/chat-memory/clear</code></td><td>L1/L2/L3</td><td>clear fence + deleted 事件 + redaction</td></tr>
+    </table>
+    <p class="note">公共路径是 <code>recordMutation → appendMutationAudit + mirrorMutationToLedger</code>；
+    L2/L3 只有操作事实镜像，没有可物理回退的前像快照。</p>
+
+    <h3>2.5 后端能力矩阵</h3>
+    <table>
+      <tr><th>后端</th><th>正文+事件事务</th><th>不可变收据</th><th>事务 revert</th><th>clear epoch</th><th>读取账本</th></tr>
+      <tr><td><span class="dot g"></span>SQLite</td><td>支持</td><td>支持</td><td>支持</td><td>支持</td><td>支持</td></tr>
+      <tr><td><span class="dot g"></span>MongoDB 副本集/分片</td><td>支持</td><td>支持</td><td>支持</td><td>支持</td><td>支持</td></tr>
+      <tr><td><span class="dot r"></span>TCVDB 原生</td><td>非原子</td><td>查后 upsert，不等价</td><td>501 拒绝</td><td>时间守卫（弱）</td><td>可读</td></tr>
+    </table>
+    <p class="note">TCVDB 的问题是能力问题，不是测试问题：查后 upsert 不能提供唯一创建与多步事务。
+    PR 的正确做法是让不支持的动作返回 501，而不是返回假成功。</p>
+
+    <h3>2.6 JSONL outbox / replay / redaction / health</h3>
+    <div class="grid3">
+      <div class="mini"><div class="m-title">分片 outbox</div><div class="m-sub">按日期 + writerId 写 <code>events/*.jsonl</code>，提交后镜像。</div></div>
+      <div class="mini"><div class="m-title">回放/backfill</div><div class="m-sub">按 <code>event_id</code> 幂等重建 store；支持 malformed/pending 统计。</div></div>
+      <div class="mini"><div class="m-title">擦除与保留期</div><div class="m-sub">clear/TTL 擦除 content/snapshot，保留事件骨架；按日期清理分片。</div></div>
+      <div class="mini"><div class="m-title">健康度</div><div class="m-sub">统计 store/jsonl 失败、pending redaction、degraded 状态。</div></div>
+      <div class="mini"><div class="m-title">writer 锁</div><div class="m-sub">同进程内同分片追加与改写串行，避免交错。</div></div>
+      <div class="mini"><div class="m-title">恢复边界</div><div class="m-sub">outbox 不是完整备份；完整恢复仍需权威 store 备份。</div></div>
+    </div>
+  </section>
+
+  <section id="interfaces">
+    <h2>3. 建设了哪些接口</h2>
+
+    <h3>3.1 HTTP 数据面接口（/v2 与 /v3）</h3>
+    <table>
+      <tr><th>接口</th><th>作用</th><th>分类</th><th>说明</th></tr>
+      <tr><td><code>POST /memory/history</code></td><td>单条 L1 记录的完整事件历史</td><td><span class="pill keep">基座读面</span></td><td>追溯变更链，不是使用链</td></tr>
+      <tr><td><code>POST /memory/ledger/status</code></td><td>账本/outbox 健康状态</td><td><span class="pill ops">运维</span></td><td>返回 degraded / pending 指标</td></tr>
+      <tr><td><code>POST /memory/ledger/backfill</code></td><td>从 JSONL outbox 回放事件</td><td><span class="pill ops">运维</span></td><td>默认关闭，需部署开关</td></tr>
+      <tr><td><code>POST /memory/diff</code></td><td>按 session 聚合变更卡片</td><td><span class="pill review">审阅</span></td><td>为 revert 提供 event_id 定位</td></tr>
+      <tr><td><code>POST /memory/diff/revert</code></td><td>物理撤销一次 L1 写入</td><td><span class="pill review">审阅</span></td><td>事务恢复旧快照 + 删除目标 + 收据</td></tr>
+      <tr><td><code>POST /memory/review/inbox</code></td><td>拉取待审阅变更集合</td><td><span class="pill review">审阅</span></td><td>按租户/时间窗口分组</td></tr>
+      <tr><td><code>POST /memory/review/list</code></td><td>按 visibility 列记录</td><td><span class="pill review">审阅</span></td><td>active / quarantined / all</td></tr>
+      <tr><td><code>POST /memory/review/retract</code></td><td>隔离记录</td><td><span class="pill review">审阅</span></td><td>可逆，不删正文</td></tr>
+      <tr><td><code>POST /memory/review/restore</code></td><td>解除观察到的隔离 token</td><td><span class="pill review">审阅</span></td><td>不是按时钟选胜者</td></tr>
+      <tr><td><code>POST /memory/review/derived</code></td><td>确认 L2/L3 派生物</td><td><span class="pill review">审阅</span></td><td>content hash + fence hash 双绑定</td></tr>
+    </table>
+    <p class="note">这些路由在 PR head 的 <code>gateway/v2-router.ts:527-536</code> 注册。
+    审阅写操作要求显式 team/user/agent 作用域；<code>reviewer_id</code> 只接受显式请求头，
+    不回落为记忆所有者或认证身份。</p>
+    <p class="note">开关差异：<code>change-ledger.md</code> 声称 <code>TDAI_MEMORY_REVIEW_ENABLED</code>
+    控制新的审核 HTTP 写入口；但代码中实际只显式包住 <code>retract/restore</code> 与
+    <code>derived acknowledge</code>（<code>v2-router.ts:1880,2058</code>）。
+    <code>/memory/diff/revert</code> 没有调用该开关，而是依赖事务账本能力返回 501/执行。
+    这是需要再确认的实现/文档不一致，不应笼统写成“所有审阅写入默认关闭”。</p>
+
+    <h3>3.2 TypeScript SDK</h3>
+    <table>
+      <tr><th>SDK 方法</th><th>对应 HTTP</th><th>说明</th></tr>
+      <tr><td><code>revertMemory()</code></td><td>/memory/diff/revert</td><td>物理撤销指定写入</td></tr>
+      <tr><td><code>retractMemory()</code></td><td>/memory/review/retract</td><td>隔离记录</td></tr>
+      <tr><td><code>restoreMemory()</code></td><td>/memory/review/restore</td><td>解除隔离</td></tr>
+      <tr><td><code>listMemoryReviews()</code></td><td>/memory/review/list</td><td>查询可见性清单</td></tr>
+      <tr><td><code>reviewDerivedArtifact()</code></td><td>/memory/review/derived</td><td>派生物确认</td></tr>
+    </table>
+    <p class="note">SDK 支持 <code>reviewerId → x-tdai-reviewer-id</code>。
+    目前未封装 <code>/memory/history</code>、<code>/memory/diff</code>、<code>/memory/ledger/*</code>。</p>
+
+    <h3>3.3 Core / Store 内部接口</h3>
+    <div class="grid3">
+      <div class="mini"><div class="m-title">账本写入</div><div class="m-sub"><code>appendMemoryEvent</code><br><code>commitMemoryEvent</code><br><code>appendLedgerEvent</code></div></div>
+      <div class="mini"><div class="m-title">账本查询/回放</div><div class="m-sub"><code>queryMemoryEvents</code><br><code>queryReviewHistory</code><br><code>replayLedgerEvents</code></div></div>
+      <div class="mini"><div class="m-title">事务/栅栏</div><div class="m-sub"><code>executeMemoryTransaction</code><br><code>getClearEpoch</code><br><code>commitClearFence</code></div></div>
+      <div class="mini"><div class="m-title">状态解析</div><div class="m-sub"><code>resolveReviewRows</code><br><code>resolveReviewFacts</code><br><code>historicalReviewRows</code></div></div>
+      <div class="mini"><div class="m-title">审阅命令</div><div class="m-sub"><code>setReviewStatus</code><br><code>revertMemory</code><br><code>acknowledgeDerivedReview</code></div></div>
+      <div class="mini"><div class="m-title">运维擦除/健康</div><div class="m-sub"><code>redactMemoryEvents</code><br><code>redactLedgerEvents</code><br><code>getLedgerHealth</code></div></div>
+    </div>
+  </section>
+
+  <section id="scale">
+    <h2>4. PR 规模：不是 12k 行“功能代码”</h2>
+    <div class="stats">
+      <div class="stat"><div class="v b">13,385</div><div class="l">总 diff 行数（add+del）</div></div>
+      <div class="stat"><div class="v">61</div><div class="l">变更文件</div></div>
+      <div class="stat"><div class="v g">5,766</div><div class="l">新增测试行</div></div>
+      <div class="stat"><div class="v o">3.2k–4.3k</div><div class="l">估算核心基座保留量</div></div>
+    </div>
+
+    <h3>实测构成（bd88cc8 → 81e48e8）</h3>
+    <div class="bars">
+      <div class="bar-row"><div class="bar-label">核心源文件/配置</div><div class="bar-track"><div class="bar-fill" style="width:51%; background: var(--accent);"></div></div><div class="bar-val">6,856 diff</div></div>
+      <div class="bar-row"><div class="bar-label">测试</div><div class="bar-track"><div class="bar-fill" style="width:43%; background: var(--green);"></div></div><div class="bar-val">5,766 diff</div></div>
+      <div class="bar-row"><div class="bar-label">文档</div><div class="bar-track"><div class="bar-fill" style="width:3%; background: var(--purple);"></div></div><div class="bar-val">394 diff</div></div>
+      <div class="bar-row"><div class="bar-label">脚本</div><div class="bar-track"><div class="bar-fill" style="width:2%; background: var(--orange);"></div></div><div class="bar-val">221 diff</div></div>
+      <div class="bar-row"><div class="bar-label">SDK 源文件</div><div class="bar-track"><div class="bar-fill" style="width:1%; background: var(--cyan);"></div></div><div class="bar-val">148 diff</div></div>
+    </div>
+    <p class="note">测试接近总新增的一半；删除 1,222 行主要是旧 JSONL/状态路径与旧 review/revert 机制清理。</p>
+
+    <h3>按“是否值得保留”切分</h3>
+    <table>
+      <tr><th>切片</th><th>规模</th><th>内容</th><th>结论</th></tr>
+      <tr>
+        <td><span class="pill keep">核心基座候选</span></td>
+        <td><b>3,200～4,300</b> diff（估）</td>
+        <td>事件模型、store 契约、三后端账本、事务提交、clear epoch、L1 写入链接入、必要测试</td>
+        <td>最值得保留，但需剥离审阅策略</td>
+      </tr>
+      <tr>
+        <td><span class="pill ops">镜像/恢复运维层</span></td>
+        <td><b>2,359</b> diff（文件级精确）</td>
+        <td>event-ledger outbox、writer shard、replay、redaction、health、retention + 测试</td>
+        <td>有价值但应单独验收，不绑定追溯契约</td>
+      </tr>
+      <tr>
+        <td><span class="pill review">审阅动作面</span></td>
+        <td><b>约 4k+</b> diff（估）</td>
+        <td>retract/restore/revert、visibility、derived review、diff/history/review 路由、SDK、动作测试</td>
+        <td>策略层，未来应按新模型重构</td>
+      </tr>
+      <tr>
+        <td><span class="pill base">其它接线/清理</span></td>
+        <td>剩余部分</td>
+        <td>conversation/add 幂等、读路径统一、schema、server wiring、config</td>
+        <td>按依赖逐项取舍</td>
+      </tr>
+    </table>
+
+    <div class="callout warn">
+      <div class="callout-title">估算口径</div>
+      <p>“核心基座 3.2k～4.3k”是<b>拆分后的目标规模估算</b>，不是已经存在的一个可独立 cherry-pick patch。
+      文件级候选切片：14 个生产候选文件 <b>+1,936 / −680</b>，7 个基础设施候选测试文件 <b>+1,200</b>；
+      其中仍混有审阅逻辑，需二次剥离。</p>
+    </div>
+
+    <h3>24 个提交的自然分层</h3>
+    <table class="small-table">
+      <tr><th>阶段</th><th>代表提交</th><th>作用</th></tr>
+      <tr><td>账本后端</td><td><code>66c8782</code></td><td>memory_events schema / codec / isolation</td></tr>
+      <tr><td>账本引擎</td><td><code>32dc080</code></td><td>change-ledger engine + L1 writer integration</td></tr>
+      <tr><td>审阅面</td><td><code>2356d57</code></td><td>memory review surface + management mirroring</td></tr>
+      <tr><td>默认隔离审阅</td><td><code>93623e0</code></td><td>default-disabled L1 quarantine review</td></tr>
+      <tr><td>耐久性/血缘</td><td><code>91e84cf</code></td><td>committed reviews durable + lineage-aware</td></tr>
+      <tr><td>物理回退</td><td><code>aaf0e2c</code></td><td>immutable outcomes + atomic revert</td></tr>
+      <tr><td>清理</td><td><code>00b38b5 / 81e48e8</code></td><td>retire obsolete paths / atomic L1 history</td></tr>
+    </table>
+  </section>
+
+  <section id="correctness">
+    <h2>5. 它实际解决了哪些正确性问题</h2>
+
+    <h3>5.0 四个动作，不是一回事</h3>
+    <table>
+      <tr><th>动作</th><th>物理效果</th><th>语义</th><th>何时用</th></tr>
+      <tr><td><span class="dot o"></span>retract</td><td>正文保留，账本新增撤回事实，进入 quarantined</td><td>停止使用，保留证据</td><td>怀疑记忆错误，先别喂给模型</td></tr>
+      <tr><td><span class="dot g"></span>restore</td><td>只解除本次收据观察到的撤回 token</td><td>恢复可见，但不抹掉撤回历史</td><td>核对后确认可继续使用</td></tr>
+      <tr><td><span class="dot r"></span>revert</td><td>一个事务内恢复旧快照、删目标、提交收据</td><td>物理撤销某次写入</td><td>那次写入本身不该发生</td></tr>
+      <tr><td><span class="dot b"></span>delete</td><td>行消失，账本事件仍在</td><td>管理面数据删除</td><td>用户要求删除数据；不是审阅动作</td></tr>
+    </table>
+    <p class="note">隔离、物理删除、更正不是等价概念。未来信念维护模型应把
+    “撤回错误断言”和“追加更正断言”分开，而不是把 revert 当时间旅行。</p>
+
+    <h3>5.1 不可变收据：一次操作只有一个结果</h3>
+    <div class="flow">
+      <div class="node"><div class="n-title">operation_id</div><div class="n-sub">调用方发请求前保存</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="n-title">确定性身份</div><div class="n-sub"><code>rop-</code> / <code>evt-</code> + request_hash</div></div>
+      <div class="arrow">→</div>
+      <div class="node accent"><div class="n-title">数据库唯一约束</div><div class="n-sub">原子创建 or 读回</div></div>
+    </div>
+    <table>
+      <tr><th>场景</th><th>行为</th></tr>
+      <tr><td>同身份 + 同输入</td><td>返回已提交收据，不重复执行</td></tr>
+      <tr><td>同身份 + 不同输入</td><td>409 冲突</td></tr>
+      <tr><td>提交结果不可确认</td><td>返回 <code>commit_unknown</code>，可用同 operation_id 重试</td></tr>
+      <tr><td>账本已提交、outbox 失败</td><td>返回 <code>outbox_pending</code>，不伪装失败</td></tr>
+    </table>
+
+    <h3>5.2 Token 语义：恢复只取消它观察到的撤回</h3>
+    <div class="mono">retract R1      → +<span class="tok">T1</span>
+restore R2      → observed={T1}，只取消 T1
+retract R3      → +<span class="tok">T2</span>（已隔离也独立生效）
+R2 迟到重试      → 仍只取消 T1 → 记忆保持 quarantined</div>
+    <p class="note">这是为了避免迟到的 restore 覆盖更新的 retract。
+    每个新 retract 独立产生 token；restore 的收据固定 observed 集合。</p>
+
+    <h3>5.3 替换血缘传播：撤回沿合并链传染</h3>
+    <div class="flow" style="align-items:center;">
+      <div class="node"><div class="n-title">A</div><div class="n-sub">被撤回 <span class="tok">T1</span></div></div>
+      <div class="arrow">→<small>A 合并进 B</small></div>
+      <div class="node"><div class="n-title">B</div><div class="n-sub">sources:[A] <span class="tok">T1</span></div></div>
+      <div class="arrow">→<small>B 合并进 C</small></div>
+      <div class="node"><div class="n-title">C</div><div class="n-sub">sources:[B] <span class="tok">T1</span></div></div>
+    </div>
+    <ul>
+      <li>A 的正文即使被替换删除，其审核控制仍保留在账本并传播。</li>
+      <li>血缘缺失时保守隔离并标 <code>lineage_incomplete</code>，不伪装完整分析。</li>
+      <li>图预算：50k 节点 / 500k 事件 / 64MiB，超限拒绝。</li>
+    </ul>
+
+    <h3>5.4 Clear 代次栅栏：不靠时钟</h3>
+    <p>SQLite/Mongo 在事务中提交单调 <code>guard_epoch</code>；抽取开始时捕获 <code>review_epoch</code>。
+    clear 之后迟到的旧代次写入被识别并隔离，无法靠“看起来更新”的时间戳复活。
+    <code>clear:</code> 与 <code>revert:</code> 类 token 不能被普通 restore 取消。</p>
+
+    <h3>5.5 revert：三段式物理撤销</h3>
+    <div class="steps">
+      <div class="step"><div class="s-head"><span class="s-num">1</span><span class="s-title">计划</span></div><div class="s-body">读取完整事件历史，定位指定 <code>event_id</code>，跑守卫。</div></div>
+      <div class="step"><div class="s-head"><span class="s-num">2</span><span class="s-title">事务</span></div><div class="s-body">恢复快照 + 删除目标 + 提交收据；任一失败整体回滚。</div></div>
+      <div class="step"><div class="s-head"><span class="s-num">3</span><span class="s-title">镜像</span></div><div class="s-body">收据发布 outbox；失败如实标 <code>outbox_pending</code>。</div></div>
+    </div>
+    <table class="small-table">
+      <tr><th>守卫</th><th>行为</th></tr>
+      <tr><td>目标之后有更新写入</td><td>409；先撤更新层或 <code>force</code></td></tr>
+      <tr><td>被 clear / delete / TTL 影响</td><td>409，拒绝复活</td></tr>
+      <tr><td>旧记录有其它存活后继</td><td>409，防并发分叉</td></tr>
+      <tr><td>快照缺失</td><td>默认 409；force 可只删不恢复</td></tr>
+      <tr><td>无事务能力后端</td><td>501</td></tr>
+    </table>
+  </section>
+
+  <section id="gaps">
+    <h2>6. 关键缺口：变更链有，使用链没有</h2>
+    <div class="callout bad">
+      <div class="callout-title">issue #1615 的核心缺口仍然真实存在</div>
+      <p>PR #1538 可以回答“一条记录被哪些写入/替换/审阅事件改过”，
+      但不能回答“它进入过哪些生成上下文、影响了哪些回答、间接生成了哪些新记忆”。</p>
+    </div>
+
+    <h3>6.1 L1 generation-log 仍只记录 L0 输入</h3>
+    <div class="mono">// 当前基线与 PR head 均如此
+// MemoryCore/src/core/record/l1-extractor.ts:381-396
+input_refs: newMessages.map((message) =&gt; ({
+  layer: "l0",
+  record_id: message.id,
+}))</div>
+    <p>它只能回答“这次 L1 抽取消费了哪些对话消息”，不能回答“当时上下文里注入了哪些 L1 记忆”。</p>
+
+    <h3>6.2 召回侧没有 ID 级使用记录</h3>
+    <div class="mono">// MemoryCore/src/core/hooks/auto-recall.ts:56-61
+export interface RecalledMemory {
+  content: string;
+  score: number;
+  type: string;
+  <span class="dim">// 没有 record_id / version / generation context id</span>
+}</div>
+    <p>底层搜索结果有 <code>record_id</code>，但格式化进 prompt 后对外只剩 content/score/type。
+    搜索日志里的临时打印不是持久化使用记录。</p>
+
+    <h3>6.3 缺失的不是一条边，而是中间两跳</h3>
+    <div class="flow">
+      <div class="node bad"><div class="n-title">A@version 被召回</div><div class="n-sub">record_id/version 在格式化时丢失</div></div>
+      <div class="arrow">→<small>未记录</small></div>
+      <div class="node bad"><div class="n-title">模型生成回答 m</div><div class="n-sub">m 不知道当时带了哪些记忆</div></div>
+      <div class="arrow">→<small>input_refs 只记 m</small></div>
+      <div class="node"><div class="n-title">L1 抽取出 B</div><div class="n-sub">B 只引用 L0:m</div></div>
+    </div>
+    <p>所以要还原 <code>A → m → B</code>，至少需要三条边：</p>
+    <ol>
+      <li>召回/注入边：哪一版 A 进入了哪次生成上下文；</li>
+      <li>产出边：L0 assistant 消息由哪次上下文生成；</li>
+      <li>抽取边：B 消费了哪些 L0 消息。</li>
+    </ol>
+
+    <h3>6.4 只修 L0→L1 还不够：系统有平行入口与平行出口</h3>
+    <div class="flow">
+      <div class="node"><div class="n-title">API 直写</div><div class="n-sub">/atomic /scenario /core<br>绕过抽取</div></div>
+      <div class="arrow">→</div>
+      <div class="node accent"><div class="n-title">L1 / L2 / L3</div><div class="n-sub">记忆与派生物</div></div>
+      <div class="arrow">→<small>召回/注入</small></div>
+      <div class="node"><div class="n-title">生成上下文</div><div class="n-sub">prompt + tools</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="n-title">L0 输出</div><div class="n-sub">回答/工具结果</div></div>
+    </div>
+    <table>
+      <tr><th>绕开点</th><th>证据</th><th>影响</th></tr>
+      <tr><td>每层直写 API</td><td><code>v2-router.ts:414-431</code></td><td>L1/L2/L3 都可能没有上游理由</td></tr>
+      <tr><td>skill 管线</td><td><code>core/skill/skill-extractor.ts:128</code> 直接吃 messages</td><td>污染可绕开 L1 结晶为 skill</td></tr>
+      <tr><td>offload L4</td><td><code>offload/index.ts:814 / 1991-2004</code></td><td>skill 结果直接注入 system prompt</td></tr>
+      <tr><td>L2 agent 累积</td><td><code>scene/scene-extractor.ts</code> 自主读写 scene files</td><td>L2 refs 是批次级，不是内容级依据</td></tr>
+      <tr><td>L3 filename refs</td><td><code>pipeline-factory.ts:1084</code></td><td>引用的是可变文件名，不是稳定版本</td></tr>
+    </table>
+
+    <h3>6.5 暴露 ≠ 污染</h3>
+    <p>即使使用边补齐，也只能先得到“暴露集”：某条记忆在哪些上下文中出现过。
+    哪些派生物真的依赖它，还需要内容级裁决/重估。系统可以承诺“已记录范围内的可疑集合”，
+    不能承诺“全部污染已经清除”。</p>
+  </section>
+
+  <section id="redesign">
+    <h2>7. 对重新设计的含义</h2>
+    <div class="grid3">
+      <div class="mini"><div class="m-title">值得保留</div><div class="m-sub"><b>变更事实基座：</b>MemoryEvent、账本存储、事务提交、clear epoch、写入链接入、核心测试。</div></div>
+      <div class="mini"><div class="m-title">单独评估</div><div class="m-sub"><b>运维恢复：</b>outbox、replay、redaction、health、migration/export，不与追溯链捆绑。</div></div>
+      <div class="mini"><div class="m-title">需要重建</div><div class="m-sub"><b>审阅动作面：</b>retract/restore/revert/derived 的语义和 API，应按新信念模型重设计。</div></div>
+    </div>
+
+    <h3>两条新契约比“某一层修对”更根本</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="s-head"><span class="s-num">1</span><span class="s-title">进库必带理由</span></div>
+        <div class="s-body">无论抽取、直写、导入、seed 还是迁移，写入任何层的断言都必须显式声明理由来源。</div>
+      </div>
+      <div class="step">
+        <div class="s-head"><span class="s-num">2</span><span class="s-title">入 context 必留痕</span></div>
+        <div class="s-body">召回、工具注入、skill、MMD、prependContext 都必须记录“哪一版内容进入了哪次生成”。</div>
+      </div>
+      <div class="step">
+        <div class="s-head"><span class="s-num">3</span><span class="s-title">更正而非时间旅行</span></div>
+        <div class="s-body">错误信念的处理应是“撤回旧断言 + 追加可过期的新断言”，不是伪装删除过去。</div>
+      </div>
+    </div>
+
+    <h3>最小落地顺序建议</h3>
+    <table>
+      <tr><th>顺序</th><th>工作</th><th>目的</th></tr>
+      <tr><td>①</td><td>定义“断言 + 理由/版本”的数据模型</td><td>先决定追溯契约，再决定保留哪些实现</td></tr>
+      <tr><td>②</td><td>补召回 record_id + 使用时刻版本</td><td>让“谁被注入”可持久记录</td></tr>
+      <tr><td>③</td><td>建立 generation-context ↔ L0 message ↔ extraction 的关联键</td><td>闭合 A → response → B 中间两跳</td></tr>
+      <tr><td>④</td><td>做只读反向查询/影响报告</td><td>先给出 bounded blast radius，再谈自动隔离</td></tr>
+      <tr><td>⑤</td><td>再设计 correct / re-evaluate / settlement</td><td>把“污染处理”变成证据驱动的信念更新</td></tr>
+    </table>
+
+    <div class="callout warn">
+      <div class="callout-title">不要把 #1538 改名 infra 后整包留下</div>
+      <p>其中大量代码已经固化“隔离/恢复/物理撤销/派生确认”的策略语义。
+      正确做法是先定新的追溯契约，再从 PR 里摘取事件、事务、代次、后端等可复用基座。</p>
+    </div>
+  </section>
+
+  <section id="verification">
+    <h2>8. 验证状态与剩余风险</h2>
+    <div class="stats">
+      <div class="stat"><div class="v g">350/350</div><div class="l">MemoryCore 测试（review 开关 OFF/ON 各一轮）</div></div>
+      <div class="stat"><div class="v g">12/12</div><div class="l">TCVDB HTTP 合约测试</div></div>
+      <div class="stat"><div class="v g">3/3</div><div class="l">TypeScript SDK review tests</div></div>
+      <div class="stat"><div class="v o">206</div><div class="l">全仓既有 typecheck diagnostics（PR 自述未清零）</div></div>
+    </div>
+
+    <h3>PR 自述已修复的 review 关注点</h3>
+    <ul>
+      <li>revert 由“按最新事件模糊定位”改为可指定精确 <code>event_id</code>。</li>
+      <li><code>/memory/history</code> 增加上限，避免单记录历史扫描失控。</li>
+      <li>补齐跨副本/重启后可能漏账本事件的检查。</li>
+      <li>revert 从多步散写改为多记录事务，避免部分恢复。</li>
+      <li>修复撤回 token 并发覆盖与跨租户 review 可见性泄露。</li>
+      <li>dedup 命中已撤回或已退役记录时，不再产生重复 L1 行。</li>
+    </ul>
+    <p class="note">这是 PR body 的自述修复清单，不等同于本报告对每项修复的独立验收。</p>
+
+    <table>
+      <tr><th>项目</th><th>状态</th><th>说明</th></tr>
+      <tr><td>SQLite / Mongo 本地事务链路</td><td><span class="dot g"></span>已验证</td><td>Mongo 8.3 + mongot 本机集成测试通过</td></tr>
+      <tr><td>真实云 TCVDB</td><td><span class="dot r"></span>未验收</td><td>只有 HTTP fixture/合约，未验证真实索引、CAS、一致性</td></tr>
+      <tr><td>Panel 操作闭环</td><td><span class="dot o"></span>另 PR</td><td>#1539，不在本 PR 范围内</td></tr>
+      <tr><td>完整部署备份/恢复/规模</td><td><span class="dot o"></span>未验收</td><td>outbox 不是权威备份，需要部署级验证</td></tr>
+      <tr><td>审阅开关覆盖面</td><td><span class="dot o"></span>需确认</td><td>文档承诺与代码实际 gating 范围不完全一致</td></tr>
+      <tr><td>使用溯源</td><td><span class="dot r"></span>未实现</td><td>issue #1615 仍 open</td></tr>
+      <tr><td>精确 DAG 影响面/重生成</td><td><span class="dot r"></span>延后</td><td>PR 文档明确不宣称精确 DAG</td></tr>
+    </table>
+
+    <h3>issue #1615 当前状态</h3>
+    <ul>
+      <li>Issue：<a href="https://github.com/TencentCloud/TencentDB-Agent-Memory/issues/1615">TencentCloud/TencentDB-Agent-Memory#1615</a>，OPEN。</li>
+      <li>社区评论者 <code>Rangsh</code> 核实了两个数据缺口，并提出最小数据层切分；其 <code>author_association=NONE</code>，不是官方成员。</li>
+      <li>官方 collaborator <code>Maxwell-Code07</code> 表示会安排 internal review；<code>yangjj-iso</code> 将 issue 指派给提出者账号。</li>
+      <li>本报告确认：Rangsh 指出的两个问题在官方基线和 PR #1538 中都真实存在。</li>
+    </ul>
+
+    <div class="callout bad">
+      <div class="callout-title">最终判断</div>
+      <p>如果目标是“事后审阅动作上线”，#1538 是一包功能；如果目标是“可追溯、可修正、可重估的信念基础设施”，
+      它只完成了约三分之一的地基，且上层动作模型需要重新设计。</p>
+      <p><b>推荐定位：</b>把 PR 重新拆成“权威变更基座 + 运维恢复 + 审阅策略”三层；
+      基座可与 #1615 的使用溯源契约对接，审阅策略不要绑定进地基验收。</p>
+    </div>
+  </section>
+
+  <section id="files">
+    <h2>9. 关键文件地图</h2>
+    <table class="files">
+      <tr><th>文件</th><th>职责</th><th>分类</th></tr>
+      <tr><td>MemoryCore/src/core/store/types.ts</td><td>MemoryEvent / MemoryEventFilter / store 能力契约</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/{sqlite,mongodb,tcvdb}/memory-store.ts</td><td>三后端账本存储、查询、事务/能力实现</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/event-codec.ts</td><td>MemoryEvent 解码与血缘 JSON 校验</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/memory-event-id.ts</td><td>event_id、时间规范、isolation 愈合、redaction filter 校验</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td>MemoryCore/src/core/record/l1-writer.ts</td><td>L1 正文与事件同事务写入</td><td><span class="pill keep">基座</span></td></tr>
+      <tr><td>MemoryCore/src/core/record/event-ledger.ts</td><td>JSONL outbox、replay、redaction、health、retention</td><td><span class="pill ops">运维</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/review.ts</td><td>审阅事实解析、token 传播、clear guard、命令编排</td><td><span class="pill review">审阅</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/visibility.ts</td><td>active/quarantined/all 可见性口径</td><td><span class="pill review">审阅</span></td></tr>
+      <tr><td>MemoryCore/src/core/record/memory-revert.ts</td><td>物理 revert 计划/守卫/收据</td><td><span class="pill review">审阅</span></td></tr>
+      <tr><td>MemoryCore/src/core/store/derived-review.ts</td><td>L2/L3 派生内容 fence 与人工确认</td><td><span class="pill review">审阅</span></td></tr>
+      <tr><td>MemoryCore/src/gateway/v2-router.ts</td><td>diff/history/review/ledger HTTP 面 + mutation 镜像</td><td><span class="pill review">混合</span></td></tr>
+      <tr><td>sdk/memory-core/typescript/src/v3/*</td><td>revert/retract/restore/list/derived SDK 方法</td><td><span class="pill review">审阅</span></td></tr>
+      <tr><td>MemoryCore/docs/change-ledger.md</td><td>PR 内完整账本契约与恢复 runbook</td><td><span class="pill base">文档</span></td></tr>
+      <tr><td>MemoryCore/src/core/record/l1-extractor.ts</td><td>L1 generation-log：当前仍只记 L0 input_refs</td><td><span class="pill miss">缺口</span></td></tr>
+      <tr><td>MemoryCore/src/core/hooks/auto-recall.ts</td><td>召回结果类型：当前仍无 record_id/version</td><td><span class="pill miss">缺口</span></td></tr>
+    </table>
+  </section>
+
+  <div class="footer">
+    报告基于：官方基线 <code>feat/server_team @ 8b86874</code>、PR #1538 <code>bd88cc8 → 81e48e8</code>、
+    issue #1615 API 数据与源码核查。规模数字由 <code>git diff --numstat</code> 与 GitHub PR 元数据对账；
+    “核心基座保留量”为拆分估算，不是已切出的独立 patch。<br>
+    本文件是技术评估报告，不构成合并验收结论。
+  </div>
+
+  </main>
+</div>
+
+</div>
+<noscript><style>main > section { display: block; } .sidebar, .pager { display: none; }</style></noscript>
+<script>
+(function () {
+  var secs = [].slice.call(document.querySelectorAll('main > section'));
+  var items = [].slice.call(document.querySelectorAll('.nav-item'));
+  var labels = {};
+  items.forEach(function (b) { labels[b.dataset.t] = b.textContent.trim(); });
+
+  function show(id) {
+    if (!secs.some(function (s) { return s.id === id; })) id = 'baseline';
+    secs.forEach(function (s) { s.classList.toggle('active', s.id === id); });
+    items.forEach(function (b) { b.classList.toggle('on', b.dataset.t === id); });
+    if (history.replaceState) history.replaceState(null, '', '#' + id);
+    window.scrollTo(0, 0);
+  }
+
+  items.forEach(function (b) {
+    b.addEventListener('click', function () { show(b.dataset.t); });
+  });
+
+  secs.forEach(function (s, i) {
+    var p = document.createElement('div');
+    p.className = 'pager';
+    if (i > 0) {
+      var prev = document.createElement('button');
+      prev.textContent = '← ' + labels[secs[i - 1].id];
+      prev.addEventListener('click', function () { show(secs[i - 1].id); });
+      p.appendChild(prev);
+    }
+    var sp = document.createElement('span');
+    sp.className = 'sp';
+    p.appendChild(sp);
+    var pos = document.createElement('span');
+    pos.className = 'pos';
+    pos.textContent = (i + 1) + ' / ' + secs.length;
+    p.appendChild(pos);
+    if (i < secs.length - 1) {
+      var nx = document.createElement('button');
+      nx.textContent = labels[secs[i + 1].id] + ' →';
+      nx.addEventListener('click', function () { show(secs[i + 1].id); });
+      p.appendChild(nx);
+    }
+    s.appendChild(p);
+  });
+
+  document.getElementById('to-top').addEventListener('click', function (e) {
+    e.preventDefault();
+    show('baseline');
+  });
+
+  show((location.hash || '').slice(1) || 'baseline');
+  window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+})();
+</script>
+</body>
+</html>
